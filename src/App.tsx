@@ -99,6 +99,14 @@ const mergeIntoBoardFlights = (existingFlights: Flight[], incomingFlights: OCRRe
   return mergedFlights;
 };
 
+const SCAN_LOADING_MESSAGES = [
+  'Analizzo la foto...',
+  'Cerco voli e orari...',
+  'Estraggo i dati principali...',
+  'Verifico terminal e posizione...',
+  'Preparo l\'importazione...',
+] as const;
+
 const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mergeStatus}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
@@ -228,6 +236,7 @@ export default function App() {
   const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | 'Scivolo' | 'Nastro'>('All');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
@@ -445,6 +454,19 @@ export default function App() {
     const timer = window.setTimeout(() => setCopyFeedback(null), 2500);
     return () => window.clearTimeout(timer);
   }, [copyFeedback]);
+
+  useEffect(() => {
+    if (!isExtracting) {
+      setScanLoadingIndex(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setScanLoadingIndex((prev) => (prev + 1) % SCAN_LOADING_MESSAGES.length);
+    }, 1800);
+
+    return () => window.clearInterval(interval);
+  }, [isExtracting]);
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
   const existingBoardFlightKeys = useMemo(
@@ -708,7 +730,7 @@ export default function App() {
                   className="mx-auto mt-6 inline-flex items-center gap-3 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                 >
                   {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                  {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : t.emptyStateAction}
+                  {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.emptyStateAction}
                 </button>
               </div>
             </div>
@@ -776,7 +798,7 @@ export default function App() {
             >
               {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
               <span className="text-[10px] font-bold uppercase tracking-widest">
-                {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : t.scanSheet}
+                {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.scanSheet}
               </span>
             </button>
             <div className="relative" ref={calendarMenuRef}>
