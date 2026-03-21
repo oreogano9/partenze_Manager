@@ -1,4 +1,4 @@
-import {extractFlightsWithOpenAI} from '../server/openaiVision';
+import {extractFlightsWithOpenAI} from './_openaiVision';
 
 const readBody = (body: unknown) => {
   if (!body) {

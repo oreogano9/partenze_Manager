@@ -69,8 +69,8 @@ const normalizeFlight = (raw: RawFlight, index: number): OCRFlightCandidate | nu
 };
 
 const normalizeResponse = (payload: unknown): OCRExtractionResult => {
-  const object = payload && typeof payload === 'object' ? payload as {text?: unknown; flights?: unknown} : {};
-  const rawFlights = Array.isArray(object.flights) ? object.flights as RawFlight[] : [];
+  const object = payload && typeof payload === 'object' ? (payload as {text?: unknown; flights?: unknown}) : {};
+  const rawFlights = Array.isArray(object.flights) ? (object.flights as RawFlight[]) : [];
 
   return {
     text: asString(object.text),
