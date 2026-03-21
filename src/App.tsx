@@ -135,7 +135,8 @@ export default function App() {
       });
     } catch (error) {
       console.error('OCR extraction failed', error);
-      setOcrError('OCR failed on this image. Try a clearer, straighter photo with the full table visible.');
+      const message = error instanceof Error ? error.message : 'OCR failed on this image.';
+      setOcrError(message);
     } finally {
       setIsExtracting(false);
       setOcrProgress(0);
