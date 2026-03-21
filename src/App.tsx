@@ -72,7 +72,8 @@ const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFli
       ...mergeFlightData(current, flight),
       confidence: Math.max(current.confidence, flight.confidence),
       sourceLine: pickPreferredValue(current.sourceLine, flight.sourceLine),
-      selected: current.selected,
+      crossedOut: current.crossedOut || flight.crossedOut || undefined,
+      selected: current.selected && !flight.crossedOut,
     };
   });
 
@@ -149,6 +150,11 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mer
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
+              {flight.crossedOut && (
+                <span className="rounded-full border border-rose-400/20 bg-rose-500/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-200">
+                  {t.crossedOut}
+                </span>
+              )}
               <span
                 className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
                   mergeStatus === 'update'
@@ -381,7 +387,7 @@ export default function App() {
       setOcrReview(prev => {
         const nextFlights = result.flights.map(flight => ({
           ...flight,
-          selected: new Date(flight.std).getTime() > Date.now(),
+          selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
         }));
 
         if (!prev) {

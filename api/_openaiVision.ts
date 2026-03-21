@@ -11,6 +11,7 @@ type RawFlight = {
   fc?: unknown;
   richiesta?: unknown;
   tot?: unknown;
+  crossedOut?: unknown;
 };
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -19,6 +20,7 @@ const DEFAULT_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+const asBoolean = (value: unknown) => value === true;
 
 const normalizeTime = (value: string) => {
   const match = value.replace('.', ':').match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
@@ -73,6 +75,7 @@ const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: Term
     tot: asString(raw.tot).toUpperCase() || undefined,
     sourceLine: asString(raw.sourceLine),
     confidence: Number(confidence.toFixed(2)),
+    crossedOut: asBoolean(raw.crossedOut) || undefined,
   };
 };
 
@@ -127,7 +130,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
         {
           role: 'system',
           content:
-            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":""}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time.',
+            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
         },
         {
           role: 'user',
@@ -135,7 +138,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
             },
             {
               type: 'image_url',

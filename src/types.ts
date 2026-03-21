@@ -19,6 +19,7 @@ export interface Flight {
 export interface OCRFlightCandidate extends Flight {
   sourceLine: string;
   confidence: number;
+  crossedOut?: boolean;
 }
 
 export interface OCRExtractionResult {
