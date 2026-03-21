@@ -3,13 +3,146 @@ import { AppState, OCRExtractionResult, OCRFlightCandidate } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard } from './components/FlightCard';
-import { getUrgencyColor } from './utils/timeUtils';
+import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
-import { Languages, Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus } from 'lucide-react';
+import { Languages, Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
+
+type OCRPreviewCardProps = {
+  flight: OCRReviewFlight;
+  onToggle: (id: string) => void;
+};
+
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const minutesToTarget = getMinutesToTarget(flight.std);
+  const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
+  const urgencyColor = getUrgencyColor(minutesToSTD);
+  const stdCountdown = formatDuration(minutesToSTD);
+  const posType = getPositionType(flight.terminal, flight.position);
+
+  let statusLabel = `${minutesToTarget}m`;
+  let labelClass = 'text-white/40';
+
+  if (minutesToSTD <= 0) {
+    statusLabel = 'In uscita';
+    labelClass = 'bg-gray-600 text-white';
+  } else if (minutesToSTD <= 40) {
+    statusLabel = 'In uscita';
+    labelClass = 'bg-red-600 text-white';
+  } else if (minutesToSTD <= 60) {
+    statusLabel = 'In chiusura';
+    labelClass = 'bg-amber-600 text-white';
+  }
+
+  return (
+    <motion.div
+      layout
+      className={`rounded-xl border shadow-lg relative ${flight.selected ? 'border-emerald-500/20 bg-[#1a1a1a]' : 'border-white/8 bg-[#141414] opacity-70'}`}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="p-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer" onClick={() => setIsExpanded(prev => !prev)}>
+          <div
+            className="w-16 h-16 rounded-lg flex flex-col items-center justify-center text-white font-bold shadow-lg shrink-0"
+            style={{ backgroundColor: urgencyColor }}
+          >
+            <span className="text-2xl leading-none">{flight.position || 'X'}</span>
+            <span className="text-[14px] font-black uppercase mt-0.5">{flight.destination}</span>
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
+            </div>
+
+            {(flight.fc || flight.richiesta || flight.tot) && !isExpanded && (
+              <div className="mt-0.5 text-[9px] leading-tight max-w-[180px] truncate whitespace-nowrap">
+                {flight.fc && <span className="text-white/70 font-black mr-1.5">{flight.fc}</span>}
+                {flight.richiesta && <span className="text-white/60 font-medium italic mr-1.5">{flight.richiesta}</span>}
+                {flight.tot && <span className="text-white/30 font-bold">{flight.tot}</span>}
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 mt-1 text-[9px] text-white/50">
+              <div className="flex items-center gap-1">
+                <ClockIcon size={10} />
+                <span>STD: {formatHHmm(flight.std)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end justify-center gap-1 shrink-0">
+          <button
+            onClick={() => onToggle(flight.id)}
+            className="rounded-xl p-2 text-white/30 transition-all hover:bg-white/5 hover:text-white"
+          >
+            {flight.selected ? <CheckSquare size={18} className="text-emerald-300" /> : <Square size={18} />}
+          </button>
+          <div className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${labelClass}`}>
+            {statusLabel}
+          </div>
+          <div className="text-[18px] font-black tracking-tighter font-mono leading-none" style={{ color: urgencyColor }}>
+            {stdCountdown}
+          </div>
+          {isExpanded ? <ChevronUp className="text-white/20" size={18} /> : <ChevronDown className="text-white/20" size={18} />}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-t border-white/5 bg-black/20 overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MapPin size={12} className="text-white/30" />
+                <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
+              </div>
+              <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{flight.terminal}</div>
+            </div>
+
+            {(flight.fc || flight.richiesta || flight.tot) && (
+              <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">Baggage Details</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(flight.fc || flight.richiesta) && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] text-white/30 font-bold w-10 shrink-0 mt-0.5">REQ</span>
+                      <div className="flex flex-wrap items-center gap-x-2">
+                        {flight.fc && <span className="text-xs text-amber-500 font-black tracking-wider">{flight.fc}</span>}
+                        {flight.richiesta && <span className="text-xs text-white/90 font-medium leading-relaxed italic">{flight.richiesta}</span>}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-white/30 font-bold w-10 shrink-0">NUM</span>
+                    <span className="text-xs text-white/90 font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">{flight.tot || '-'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 py-3 text-xs text-white/65 flex items-center justify-between">
+              <span className="uppercase tracking-[0.2em] text-white/35">Confidence</span>
+              <span className="font-black text-emerald-300">{Math.round(flight.confidence * 100)}%</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
 
 export default function App() {
   const [state, setState] = useState<AppState>({
@@ -575,60 +708,7 @@ export default function App() {
                         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
                           <div className="space-y-3">
                           {ocrReview.flights.map((flight: OCRReviewFlight) => (
-                            <div key={flight.id} className={`rounded-2xl border p-4 transition-all ${flight.selected ? 'border-emerald-500/20 bg-emerald-500/[0.06]' : 'border-white/8 bg-black/20 opacity-70'}`}>
-                              <div className="mb-3 flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-lg font-black tracking-tight text-white">{flight.position || 'X'}</span>
-                                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
-                                      {flight.destination}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/65">{flight.flightNumber}</p>
-                                  <p className="mt-1 text-xs text-white/40">{flight.sourceLine}</p>
-                                </div>
-                                <button
-                                  onClick={() => toggleOcrCandidate(flight.id)}
-                                  className="rounded-xl p-2 text-white/30 transition-all hover:bg-white/5 hover:text-white"
-                                >
-                                  {flight.selected ? <CheckSquare size={18} className="text-emerald-300" /> : <Square size={18} />}
-                                </button>
-                              </div>
-                              <div className="grid gap-2 text-xs text-white/70 sm:grid-cols-4">
-                                <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                  <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">STD</span>
-                                  {new Date(flight.std).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                </div>
-                                <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                  <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">Terminal</span>
-                                  {flight.terminal}
-                                </div>
-                                <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                  <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">Position</span>
-                                  {flight.position || 'X'}
-                                </div>
-                                <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                  <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">Confidence</span>
-                                  {Math.round(flight.confidence * 100)}%
-                                </div>
-                              </div>
-                              {(flight.fc || flight.richiesta || flight.tot) && (
-                                <div className="mt-2 grid gap-2 text-xs text-white/65 sm:grid-cols-3">
-                                  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                    <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">FC</span>
-                                    {flight.fc || '-'}
-                                  </div>
-                                  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                    <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">Richiesta</span>
-                                    {flight.richiesta || '-'}
-                                  </div>
-                                  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-                                    <span className="block text-[10px] uppercase tracking-[0.2em] text-white/30">TOT</span>
-                                    {flight.tot || '-'}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                            <OCRPreviewCard key={flight.id} flight={flight} onToggle={toggleOcrCandidate} />
                           ))}
                           </div>
                         </div>
