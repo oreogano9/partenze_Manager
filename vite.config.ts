@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 import {handleUpload} from '@vercel/blob/client';
 import {extractFlightsWithOpenAI} from './server/openaiVision';
 
+const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
+
 const readBody = (req: IncomingMessage) =>
   new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -39,7 +41,7 @@ export default defineConfig({
             const rawBody = await readBody(req);
             const body = rawBody ? JSON.parse(rawBody) : {};
             const result = await handleUpload({
-              token: process.env.BLOB_READ_WRITE_TOKEN,
+              token: blobToken,
               request: req,
               body,
               onBeforeGenerateToken: async () => ({

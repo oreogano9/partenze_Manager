@@ -17,7 +17,7 @@ View your app in AI Studio: https://ai.studio/apps/e5f0819c-8fe8-4014-8a9d-d8901
    `npm install`
 2. Create `.env.local` with:
    `OPENAI_API_KEY=...`
-   `BLOB_READ_WRITE_TOKEN=...`
+   `BLOB_READ_WRITE_TOKEN=...` (or `BLOBV1_READ_WRITE_TOKEN=...`)
 3. Run the app:
    `npm run dev`
 
@@ -25,5 +25,6 @@ View your app in AI Studio: https://ai.studio/apps/e5f0819c-8fe8-4014-8a9d-d8901
 
 - Add `OPENAI_API_KEY` as a Vercel environment variable
 - Add `BLOB_READ_WRITE_TOKEN` as a Vercel environment variable
+  or use `BLOBV1_READ_WRITE_TOKEN` as a fallback
 - Do not commit `.env.local` or any real API key files
 - The browser uploads directly to Blob using a short-lived server-issued token, then your server sends the Blob URL to OpenAI so the key does not reach the browser
