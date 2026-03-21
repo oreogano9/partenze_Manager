@@ -695,9 +695,22 @@ export default function App() {
         {/* Flight List */}
         <div className="space-y-0">
           {filteredFlights.length === 0 ? (
-            <div className="text-center py-20 text-white/20">
-              <Plane size={48} className="mx-auto mb-4 opacity-10" />
-              <p>{t.noFlightsScheduled}</p>
+            <div className="py-12">
+              <div className="mx-auto max-w-xl rounded-[28px] border border-white/10 bg-[#111111] px-6 py-10 text-center shadow-2xl">
+                <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-500/10 border border-emerald-500/20">
+                  <Camera size={34} className="text-emerald-300" />
+                </div>
+                <p className="text-xl font-black text-white">{t.noFlightsScheduled}</p>
+                <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.emptyStateHint}</p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isExtracting}
+                  className="mx-auto mt-6 inline-flex items-center gap-3 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                >
+                  {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                  {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : t.emptyStateAction}
+                </button>
+              </div>
             </div>
           ) : (
             filteredFlights.map((flight, index) => {
