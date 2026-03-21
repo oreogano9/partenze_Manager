@@ -734,7 +734,6 @@ export default function App() {
                 <p className="text-xl font-black text-white">{t.noFlightsScheduled}</p>
                 <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.emptyStateHint}</p>
                 <div className="mt-6">
-                  <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">{t.scanTerminalLabel}</p>
                   <div className="mx-auto inline-flex bg-white/5 p-1 rounded-full border border-white/10">
                     {(['T1', 'T3'] as const).map((term) => (
                       <button
