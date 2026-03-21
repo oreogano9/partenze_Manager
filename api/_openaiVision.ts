@@ -130,7 +130,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
         {
           role: 'system',
           content:
-            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
+            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. flightNumber must include the airline/operator prefix when it is visible, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
         },
         {
           role: 'user',
@@ -138,7 +138,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
             },
             {
               type: 'image_url',
