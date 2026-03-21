@@ -313,7 +313,7 @@ export default function App() {
           </button>
 
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {(['All', 'Scivolo', 'Nastro', 'Baia'] as const).map((type) => (
+            {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
               <button
                 key={type}
                 onClick={() => setState(prev => ({ ...prev, filterType: type }))}
@@ -509,7 +509,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 20, scale: 0.98 }}
-                className="grid max-h-[90vh] w-full max-w-6xl gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl lg:grid-cols-[0.95fr_1.05fr]"
+                className="grid h-[90vh] w-full max-w-6xl gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl lg:grid-cols-[0.92fr_1.08fr]"
               >
                 <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
@@ -542,13 +542,13 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="min-h-0 overflow-auto rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03]">
                       <div className="mb-4 flex items-center justify-between gap-3">
-                        <div>
+                        <div className="p-4 pb-0">
                           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">Parsed Flights</p>
                           <p className="text-sm text-white/50">Uncheck anything you do not want to add.</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 p-4 pb-0">
                           <button
                             onClick={() => toggleAllOcrCandidates(true)}
                             className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
@@ -568,21 +568,23 @@ export default function App() {
                       </div>
 
                       {ocrReview.flights.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
+                        <div className="mx-4 mb-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
                           No complete flights were parsed. Try a straighter image with full rows visible.
                         </div>
                       ) : (
-                        <div className="space-y-3">
+                        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+                          <div className="space-y-3">
                           {ocrReview.flights.map((flight: OCRReviewFlight) => (
                             <div key={flight.id} className={`rounded-2xl border p-4 transition-all ${flight.selected ? 'border-emerald-500/20 bg-emerald-500/[0.06]' : 'border-white/8 bg-black/20 opacity-70'}`}>
                               <div className="mb-3 flex items-start justify-between gap-3">
                                 <div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-lg font-black tracking-tight text-white">{flight.flightNumber}</span>
+                                    <span className="text-lg font-black tracking-tight text-white">{flight.position || 'X'}</span>
                                     <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
                                       {flight.destination}
                                     </span>
                                   </div>
+                                  <p className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/65">{flight.flightNumber}</p>
                                   <p className="mt-1 text-xs text-white/40">{flight.sourceLine}</p>
                                 </div>
                                 <button
@@ -628,39 +630,39 @@ export default function App() {
                               )}
                             </div>
                           ))}
+                          </div>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col rounded-2xl border border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent p-5">
-                  <div className="mb-4">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent">
+                  <div className="min-h-0 flex-1 overflow-auto p-5">
                     <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/35">Add To Board</p>
-                    <p className="mt-3 text-sm text-white/60">
-                      Checked rows will be added to the live departures list. Unchecked rows stay out.
+                    <p className="mt-2 text-xs text-white/50">
+                      Checked rows will be added to the live departures list.
                     </p>
                   </div>
-
-                  <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
-                    <div className="mb-4 flex items-center justify-between text-sm">
-                      <span className="text-white/50">Selected</span>
+                  <div className="border-t border-white/5 bg-black/30 p-3">
+                    <div className="flex items-center justify-between text-xs text-white/50">
+                      <span>Selected</span>
                       <span className="font-black text-white">{selectedOcrCount}</span>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="mt-3 flex gap-2">
                       <button
                         onClick={closeOcrReview}
-                        className="flex-1 rounded-2xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                        className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleImportFlights}
                         disabled={selectedOcrCount === 0}
-                        className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                        className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                       >
                         <span className="inline-flex items-center gap-2">
-                          <Plus size={16} />
+                          <Plus size={14} />
                           Add
                         </span>
                       </button>

@@ -68,8 +68,9 @@ const uploadImageToBlob = async (file: File, onProgress?: (progress: number) => 
       access: 'public',
       handleUploadUrl: '/api/blob-upload',
       onUploadProgress: event => {
-        const percentage = typeof event.percentage === 'number' ? event.percentage : 0;
-        onProgress?.(0.1 + percentage * 0.45);
+        const rawPercentage = typeof event.percentage === 'number' ? event.percentage : 0;
+        const normalizedPercentage = rawPercentage > 1 ? rawPercentage / 100 : rawPercentage;
+        onProgress?.(0.1 + normalizedPercentage * 0.45);
       },
     });
     return blob.url;

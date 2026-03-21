@@ -1,7 +1,7 @@
 
 export type TerminalType = 'T1' | 'T2';
 
-export type PositionType = 'Scivolo' | 'Nastro' | 'Baia';
+export type PositionType = 'Scivolo' | 'Nastro';
 
 export interface Flight {
   id: string;
