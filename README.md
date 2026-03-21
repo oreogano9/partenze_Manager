@@ -26,4 +26,4 @@ View your app in AI Studio: https://ai.studio/apps/e5f0819c-8fe8-4014-8a9d-d8901
 - Add `OPENAI_API_KEY` as a Vercel environment variable
 - Add `BLOB_READ_WRITE_TOKEN` as a Vercel environment variable
 - Do not commit `.env.local` or any real API key files
-- The app uploads the image through your server route, stores it in Blob, and calls OpenAI from the server so the key does not reach the browser
+- The browser uploads directly to Blob using a short-lived server-issued token, then your server sends the Blob URL to OpenAI so the key does not reach the browser

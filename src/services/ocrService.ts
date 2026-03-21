@@ -1,3 +1,4 @@
+import {upload} from '@vercel/blob/client';
 import {OCRExtractionResult} from '../types';
 
 const fileToImage = (file: File) =>
@@ -61,6 +62,23 @@ const normalizeError = (error: unknown) => {
   return new Error('Flight extraction failed');
 };
 
+const uploadImageToBlob = async (file: File, onProgress?: (progress: number) => void) => {
+  try {
+    const blob = await upload(`ocr-uploads/${Date.now()}-${file.name}`, file, {
+      access: 'public',
+      handleUploadUrl: '/api/blob-upload',
+      onUploadProgress: event => {
+        const percentage = typeof event.percentage === 'number' ? event.percentage : 0;
+        onProgress?.(0.1 + percentage * 0.45);
+      },
+    });
+    return blob.url;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Blob upload failed';
+    throw new Error(`Image upload failed: ${message}`);
+  }
+};
+
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -89,20 +107,24 @@ export const extractFlightsFromImage = async (
   onProgress?: (progress: number) => void,
 ): Promise<OCRExtractionResult> => {
   try {
-    onProgress?.(0.1);
+    onProgress?.(0.05);
     const optimizedImage = await optimizeImageFile(image);
-    onProgress?.(0.35);
+    onProgress?.(0.1);
 
     if (optimizedImage.size > 4_000_000) {
       throw new Error('Image is still too large. Try cropping tighter around the flight table.');
     }
 
-    const formData = new FormData();
-    formData.append('image', optimizedImage);
+    const imageUrl = await uploadImageToBlob(optimizedImage, onProgress);
+    onProgress?.(0.65);
 
+    const formData = new FormData();
     const response = await fetch('/api/extract-flights', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({imageUrl}),
     });
 
     if (!response.ok) {

@@ -3,49 +3,18 @@ import react from '@vitejs/plugin-react';
 import {IncomingMessage, ServerResponse} from 'node:http';
 import path from 'path';
 import {defineConfig} from 'vite';
-import {put} from '@vercel/blob';
+import {handleUpload} from '@vercel/blob/client';
 import {extractFlightsWithOpenAI} from './server/openaiVision';
 
 const readBody = (req: IncomingMessage) =>
-  new Promise<Buffer>((resolve, reject) => {
+  new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     req.on('end', () => {
-      resolve(Buffer.concat(chunks));
+      resolve(Buffer.concat(chunks).toString('utf8'));
     });
     req.on('error', reject);
   });
-
-const parseMultipartForm = (buffer: Buffer, boundary: string) => {
-  const boundaryMarker = `--${boundary}`;
-  const segments = buffer.toString('latin1').split(boundaryMarker).slice(1, -1);
-
-  for (const segment of segments) {
-    const trimmed = segment.replace(/^\r\n/, '').replace(/\r\n$/, '');
-    const separator = trimmed.indexOf('\r\n\r\n');
-    if (separator === -1) {
-      continue;
-    }
-
-    const rawHeaders = trimmed.slice(0, separator);
-    const content = trimmed.slice(separator + 4);
-    const disposition = rawHeaders.match(/name="([^"]+)".*filename="([^"]+)"/i);
-    const typeMatch = rawHeaders.match(/Content-Type:\s*([^\r\n]+)/i);
-
-    if (!disposition) {
-      continue;
-    }
-
-    return {
-      fieldName: disposition[1],
-      filename: disposition[2],
-      contentType: typeMatch?.[1]?.trim() || 'application/octet-stream',
-      data: Buffer.from(content, 'latin1'),
-    };
-  }
-
-  return null;
-};
 
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.statusCode = statusCode;
@@ -60,6 +29,33 @@ export default defineConfig({
     {
       name: 'local-openai-extract-route',
       configureServer(server) {
+        server.middlewares.use('/api/blob-upload', async (req, res, next) => {
+          if (req.method !== 'POST') {
+            next();
+            return;
+          }
+
+          try {
+            const rawBody = await readBody(req);
+            const body = rawBody ? JSON.parse(rawBody) : {};
+            const result = await handleUpload({
+              token: process.env.BLOB_READ_WRITE_TOKEN,
+              request: req,
+              body,
+              onBeforeGenerateToken: async () => ({
+                allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
+                maximumSizeInBytes: 4_000_000,
+                addRandomSuffix: true,
+              }),
+              onUploadCompleted: async () => {},
+            });
+            sendJson(res, 200, result);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Blob upload failed';
+            sendJson(res, 500, {error: message});
+          }
+        });
+
         server.middlewares.use('/api/extract-flights', async (req, res, next) => {
           if (req.method !== 'POST') {
             next();
@@ -67,27 +63,14 @@ export default defineConfig({
           }
 
           try {
-            const contentType = req.headers['content-type'] || '';
-            const boundaryMatch = contentType.match(/boundary=(.+)$/);
-            if (!boundaryMatch) {
-              sendJson(res, 400, {error: 'Missing multipart boundary'});
+            const rawBody = await readBody(req);
+            const body = rawBody ? JSON.parse(rawBody) : {};
+            if (!body.imageUrl) {
+              sendJson(res, 400, {error: 'Missing imageUrl'});
               return;
             }
 
-            const body = await readBody(req);
-            const filePart = parseMultipartForm(body, boundaryMatch[1]);
-            if (!filePart) {
-              sendJson(res, 400, {error: 'Missing image upload'});
-              return;
-            }
-
-            const blob = await put(`ocr-uploads/${Date.now()}-${filePart.filename}`, filePart.data, {
-              access: 'public',
-              addRandomSuffix: true,
-              contentType: filePart.contentType,
-            });
-
-            const result = await extractFlightsWithOpenAI(blob.url);
+            const result = await extractFlightsWithOpenAI(body.imageUrl);
             sendJson(res, 200, result);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Flight extraction failed';
