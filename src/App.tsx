@@ -77,7 +77,7 @@ const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFli
     };
   });
 
-  return merged;
+  return merged.sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
 };
 
 const mergeIntoBoardFlights = (existingFlights: Flight[], incomingFlights: OCRReviewFlight[]) => {
@@ -483,11 +483,30 @@ export default function App() {
     [state.flights],
   );
   const visibleOcrFlights = ocrReview
-    ? ocrReview.flights.filter((flight) => (
+    ? ocrReview.flights
+      .filter((flight) => (
         ocrReviewTypeFilter === 'All' || getPositionType(flight.terminal, flight.position) === ocrReviewTypeFilter
       ))
+      .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
     : [];
   const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
+  const annotatedOcrText = useMemo(() => {
+    if (!ocrReview) {
+      return '';
+    }
+
+    const crossedOutLines = ocrReview.flights
+      .filter((flight) => flight.crossedOut && flight.sourceLine)
+      .map((flight) => `- ${flight.sourceLine}`);
+
+    if (crossedOutLines.length === 0) {
+      return ocrReview.text.trim();
+    }
+
+    const baseText = ocrReview.text.trim();
+    const crossedOutSection = `${t.crossedOutLinesDetected}:\n${crossedOutLines.join('\n')}`;
+    return [baseText, crossedOutSection].filter(Boolean).join('\n\n');
+  }, [ocrReview, t.crossedOutLinesDetected]);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
@@ -992,7 +1011,7 @@ export default function App() {
                           {t.rawOcrText}
                         </div>
                         <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap text-xs leading-5 text-white/70">
-                          {ocrReview.text.trim() || t.noOcrTextRecognized}
+                          {annotatedOcrText || t.noOcrTextRecognized}
                         </pre>
                       </div>
                     </div>
@@ -1180,7 +1199,7 @@ export default function App() {
                             {t.rawOcrText}
                           </div>
                           <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap text-xs leading-5 text-white/70">
-                            {ocrReview.text.trim() || t.noOcrTextRecognized}
+                            {annotatedOcrText || t.noOcrTextRecognized}
                           </pre>
                         </div>
                       </div>
