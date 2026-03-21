@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, OCRExtractionResult, OCRFlightCandidate } from './types';
+import { AppState, OCRFlightCandidate } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
-import { Languages, Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
+import { Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
+type OCRReviewPreview = { previewUrl: string; fileName: string };
+type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
 
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
@@ -133,12 +135,13 @@ export default function App() {
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
-  const [ocrReview, setOcrReview] = useState<({ flights: OCRReviewFlight[]; text: string; previewUrl: string; fileName: string }) | null>(null);
+  const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
   const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | 'Scivolo' | 'Nastro'>('All');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ocrReviewRef = useRef<OCRReviewState | null>(null);
 
   const t = TRANSLATIONS[state.language];
 
@@ -183,10 +186,6 @@ export default function App() {
     }));
   };
 
-  const toggleLanguage = () => {
-    setState(prev => ({ ...prev, language: prev.language === 'it' ? 'en' : 'it' }));
-  };
-
   const togglePast = () => {
     setState(prev => ({ ...prev, showPast: !prev.showPast }));
   };
@@ -194,9 +193,7 @@ export default function App() {
   const closeOcrReview = () => {
     setOcrReviewTypeFilter('All');
     setOcrReview(prev => {
-      if (prev?.previewUrl) {
-        URL.revokeObjectURL(prev.previewUrl);
-      }
+      prev?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
       return null;
     });
   };
@@ -274,7 +271,6 @@ export default function App() {
     setOcrError(null);
     setIsExtracting(true);
     setOcrProgress(0);
-    closeOcrReview();
 
     try {
       const result = await extractFlightsFromImage(file, scanTerminal, progress => {
@@ -282,14 +278,26 @@ export default function App() {
       });
 
       const previewUrl = URL.createObjectURL(file);
-      setOcrReview({
-        text: result.text,
-        flights: result.flights.map(flight => ({
+      setOcrReview(prev => {
+        const nextFlights = result.flights.map(flight => ({
           ...flight,
           selected: new Date(flight.std).getTime() > Date.now(),
-        })),
-        previewUrl,
-        fileName: file.name,
+        }));
+
+        if (!prev) {
+          setOcrReviewTypeFilter('All');
+          return {
+            text: result.text,
+            flights: nextFlights,
+            previews: [{ previewUrl, fileName: file.name }],
+          };
+        }
+
+        return {
+          text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
+          flights: [...prev.flights, ...nextFlights],
+          previews: [...prev.previews, { previewUrl, fileName: file.name }],
+        };
       });
     } catch (error) {
       console.error('OCR extraction failed', error);
@@ -332,11 +340,13 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => () => {
-    if (ocrReview?.previewUrl) {
-      URL.revokeObjectURL(ocrReview.previewUrl);
-    }
+  useEffect(() => {
+    ocrReviewRef.current = ocrReview;
   }, [ocrReview]);
+
+  useEffect(() => () => {
+    ocrReviewRef.current?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
+  }, []);
 
   useEffect(() => {
     if (!copyFeedback) {
@@ -353,6 +363,7 @@ export default function App() {
         ocrReviewTypeFilter === 'All' || getPositionType(flight.terminal, flight.position) === ocrReviewTypeFilter
       ))
     : [];
+  const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
@@ -736,22 +747,53 @@ export default function App() {
                   <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">{t.ocrReview}</p>
-                      <p className="text-sm text-white/60">{ocrReview.fileName}</p>
+                      <p className="text-sm text-white/60">
+                        {ocrReview.previews.length} {t.imagesScanned}
+                      </p>
                     </div>
-                    <button
-                      onClick={closeOcrReview}
-                      className="rounded-xl p-2 text-white/40 transition-all hover:bg-white/5 hover:text-white"
-                    >
-                      <X size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isExtracting}
+                        className="rounded-xl border border-emerald-500/20 px-3 py-2 text-xs font-bold text-emerald-300 transition-all hover:bg-emerald-500/10 disabled:opacity-60"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          {isExtracting ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                          {t.addImage}
+                        </span>
+                      </button>
+                      <button
+                        onClick={closeOcrReview}
+                        className="rounded-xl p-2 text-white/40 transition-all hover:bg-white/5 hover:text-white"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[0.85fr_1.15fr]">
                     <div className="space-y-3">
-                      <img
-                        src={ocrReview.previewUrl}
-                        alt={t.uploadedFlightSheet}
-                        className="w-full rounded-2xl border border-white/10 object-cover"
-                      />
+                      {latestOcrPreview && (
+                        <img
+                          src={latestOcrPreview.previewUrl}
+                          alt={t.uploadedFlightSheet}
+                          className="w-full rounded-2xl border border-white/10 object-cover"
+                        />
+                      )}
+                      <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">{t.latestImage}</div>
+                          <div className="text-xs text-white/40 truncate">
+                            {latestOcrPreview?.fileName}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {ocrReview.previews.map((preview, index) => (
+                            <div key={`${preview.fileName}-${index}`} className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold text-white/60">
+                              {preview.fileName}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                       <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
                         <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">
                           <ScanText size={14} />
@@ -770,36 +812,36 @@ export default function App() {
                           <p className="text-sm text-white/50">{t.parsedFlightsHint}</p>
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2 p-4 pb-0">
-                          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-                            {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
-                              <button
-                                key={type}
-                                onClick={() => setOcrReviewTypeFilter(type)}
-                                className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
-                                  ocrReviewTypeFilter === type
-                                    ? 'bg-blue-500 text-white'
-                                    : 'text-white/40 hover:text-white/60'
-                                }`}
-                              >
-                                {type === 'All' ? t.all : type === 'Scivolo' ? 'SCIVOLI' : 'NASTRI'}
-                              </button>
-                            ))}
-                          </div>
                           <button
                             onClick={() => setOcrSelectionByType('Scivolo')}
-                            className="rounded-full border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-200 transition-all hover:bg-amber-500/10"
+                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                              ocrReviewTypeFilter === 'Scivolo'
+                                ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
+                                : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
+                            }`}
                           >
                             {t.onlyScivoli}
                           </button>
                           <button
                             onClick={() => setOcrSelectionByType('Nastro')}
-                            className="rounded-full border border-cyan-500/20 px-3 py-1 text-xs font-bold text-cyan-200 transition-all hover:bg-cyan-500/10"
+                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                              ocrReviewTypeFilter === 'Nastro'
+                                ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
+                                : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
+                            }`}
                           >
                             {t.onlyNastri}
                           </button>
                           <button
-                            onClick={() => toggleAllOcrCandidates(true)}
-                            className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                            onClick={() => {
+                              setOcrReviewTypeFilter('All');
+                              toggleAllOcrCandidates(true);
+                            }}
+                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                              ocrReviewTypeFilter === 'All'
+                                ? 'border-white/20 bg-white/10 text-white'
+                                : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
+                            }`}
                           >
                             {t.all}
                           </button>
