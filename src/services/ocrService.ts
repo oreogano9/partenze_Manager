@@ -15,7 +15,7 @@ const fileToImage = (file: File) =>
 
 const resizeImageToDataUrl = async (file: File) => {
   const image = await fileToImage(file);
-  const maxDimension = 1600;
+  const maxDimension = 1200;
   const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
@@ -30,7 +30,7 @@ const resizeImageToDataUrl = async (file: File) => {
   }
 
   context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', 0.82);
+  return canvas.toDataURL('image/jpeg', 0.68);
 };
 
 const extractErrorMessage = async (response: Response) => {
@@ -77,6 +77,11 @@ const fileToDataUrl = async (file: File) => {
   }
 };
 
+const estimateBytesFromDataUrl = (dataUrl: string) => {
+  const base64 = dataUrl.split(',')[1] || '';
+  return Math.ceil((base64.length * 3) / 4);
+};
+
 export const extractFlightsFromImage = async (
   image: File,
   onProgress?: (progress: number) => void,
@@ -85,6 +90,10 @@ export const extractFlightsFromImage = async (
     onProgress?.(0.1);
     const imageDataUrl = await fileToDataUrl(image);
     onProgress?.(0.35);
+
+    if (estimateBytesFromDataUrl(imageDataUrl) > 2_500_000) {
+      throw new Error('Image still too large after compression. Try cropping tighter around the flight table.');
+    }
 
     const response = await fetch('/api/extract-flights', {
       method: 'POST',
