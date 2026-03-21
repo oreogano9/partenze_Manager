@@ -18,7 +18,8 @@ export default function App() {
     showPast: false,
     filterType: 'All',
     searchQuery: '',
-    showFocusOnly: false
+    showFocusOnly: false,
+    showMockFlights: true
   });
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T2'>('ALL');
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
@@ -39,6 +40,8 @@ export default function App() {
     
     return state.flights
       .filter(f => {
+        const isMockFlight = !f.id.startsWith('ocr-');
+        const matchesMockVisibility = state.showMockFlights || !isMockFlight;
         const isPast = new Date(f.std) <= now;
         const matchesPast = state.showPast || !isPast;
         const posType = getPositionType(f.terminal, f.position);
@@ -54,10 +57,10 @@ export default function App() {
         const isFocused = minutesToSTD >= 30 && minutesToSTD <= 90;
         const matchesFocus = !state.showFocusOnly || isFocused;
 
-        return matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus;
+        return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus;
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [state.flights, state.showPast, state.filterType, state.searchQuery, state.showFocusOnly, terminalFilter]);
+  }, [state.flights, state.showPast, state.filterType, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter]);
 
   const handleTagToggle = (id: string, tag: string) => {
     setState(prev => ({
@@ -284,6 +287,17 @@ export default function App() {
           >
             <Filter size={14} />
             {state.showPast ? t.showPast : t.hidePast}
+          </button>
+
+          <button
+            onClick={() => setState(prev => ({ ...prev, showMockFlights: !prev.showMockFlights }))}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+              state.showMockFlights
+                ? 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                : 'bg-emerald-500 text-black border-emerald-500'
+            }`}
+          >
+            {state.showMockFlights ? 'Hide Dummy' : 'Show Dummy'}
           </button>
 
           <button 

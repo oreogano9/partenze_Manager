@@ -33,4 +33,5 @@ export interface AppState {
   filterType: PositionType | 'All';
   searchQuery: string;
   showFocusOnly: boolean;
+  showMockFlights: boolean;
 }
