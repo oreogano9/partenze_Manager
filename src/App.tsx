@@ -463,7 +463,7 @@ export default function App() {
 
     const interval = window.setInterval(() => {
       setScanLoadingIndex((prev) => (prev + 1) % SCAN_LOADING_MESSAGES.length);
-    }, 1800);
+    }, 3600);
 
     return () => window.clearInterval(interval);
   }, [isExtracting]);
@@ -783,78 +783,82 @@ export default function App() {
       </main>
 
       {/* Bottom Bar */}
-      <div className="fixed bottom-6 right-6 z-[100] pointer-events-none">
-        <div className="flex justify-end pointer-events-auto">
-          <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex gap-2 shadow-2xl">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isExtracting}
-              className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
-                isExtracting
-                  ? 'bg-emerald-500/15 text-emerald-300'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
-              } disabled:opacity-70`}
-              aria-label={t.scanSheet}
-            >
-              {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-              <span className="text-[10px] font-bold uppercase tracking-widest">
-                {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.scanSheet}
-              </span>
-            </button>
-            <div className="relative" ref={calendarMenuRef}>
-              <AnimatePresence>
-                {showCalendarMenu && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full right-0 mb-4 w-64 bg-[#1a1a1a] border border-white/10 rounded-2xl p-2 shadow-2xl z-[110]"
-                  >
-                    <div className="px-3 py-2 border-b border-white/5 mb-1">
-                      <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                        {t.export} ({filteredFlights.length} {t.flights})
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => handleCalendarExport('ics')}
-                      className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left"
+      {(filteredFlights.length > 0 || currentView === 'settings') && (
+        <div className="fixed bottom-6 right-6 z-[100] pointer-events-none">
+          <div className="flex justify-end pointer-events-auto">
+            <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex gap-2 shadow-2xl">
+              {currentView !== 'settings' && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isExtracting}
+                  className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
+                    isExtracting
+                      ? 'bg-emerald-500/15 text-emerald-300'
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  } disabled:opacity-70`}
+                  aria-label={t.scanSheet}
+                >
+                  {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                  <span className="text-[10px] font-bold uppercase tracking-widest">
+                    {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.scanSheet}
+                  </span>
+                </button>
+              )}
+              <div className="relative" ref={calendarMenuRef}>
+                <AnimatePresence>
+                  {showCalendarMenu && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute bottom-full right-0 mb-4 w-64 bg-[#1a1a1a] border border-white/10 rounded-2xl p-2 shadow-2xl z-[110]"
                     >
-                      <Download size={16} className="text-blue-400" />
-                      <div className="flex flex-col">
-                        <span className="font-bold">Apple / Outlook / ICS</span>
-                        <span className="text-[10px] text-white/40">{t.downloadBulkImport}</span>
+                      <div className="px-3 py-2 border-b border-white/5 mb-1">
+                        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                          {t.export} ({filteredFlights.length} {t.flights})
+                        </p>
                       </div>
-                    </button>
-                    <div className="px-3 py-2 bg-white/[0.02] rounded-xl mt-1">
-                      <p className="text-[9px] text-white/30 leading-relaxed italic">
-                        {t.mobileIcsHint}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => handleCalendarExport('copy')}
-                      className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left"
-                    >
-                      <Copy size={16} className="text-emerald-400" />
-                      <div className="flex flex-col">
-                        <span className="font-bold">{t.copyForAi}</span>
-                        <span className="text-[10px] text-white/40">
-                          {t.copyEventText}
-                        </span>
+                      <button 
+                        onClick={() => handleCalendarExport('ics')}
+                        className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left"
+                      >
+                        <Download size={16} className="text-blue-400" />
+                        <div className="flex flex-col">
+                          <span className="font-bold">Apple / Outlook / ICS</span>
+                          <span className="text-[10px] text-white/40">{t.downloadBulkImport}</span>
+                        </div>
+                      </button>
+                      <div className="px-3 py-2 bg-white/[0.02] rounded-xl mt-1">
+                        <p className="text-[9px] text-white/30 leading-relaxed italic">
+                          {t.mobileIcsHint}
+                        </p>
                       </div>
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <button 
-                onClick={() => setShowCalendarMenu(!showCalendarMenu)}
-                className={`p-3 rounded-xl transition-all ${showCalendarMenu ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-              >
-                <CalendarIcon size={20} />
-              </button>
+                      <button 
+                        onClick={() => handleCalendarExport('copy')}
+                        className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left"
+                      >
+                        <Copy size={16} className="text-emerald-400" />
+                        <div className="flex flex-col">
+                          <span className="font-bold">{t.copyForAi}</span>
+                          <span className="text-[10px] text-white/40">
+                            {t.copyEventText}
+                          </span>
+                        </div>
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <button 
+                  onClick={() => setShowCalendarMenu(!showCalendarMenu)}
+                  className={`p-3 rounded-xl transition-all ${showCalendarMenu ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                >
+                  <CalendarIcon size={20} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       <AnimatePresence>
         {ocrReview && (
@@ -899,7 +903,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[0.85fr_1.15fr]">
-                    <div className="space-y-3">
+                    <div className="order-2 space-y-3 lg:order-1">
                       {latestOcrPreview && (
                         <img
                           src={latestOcrPreview.previewUrl}
@@ -933,7 +937,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03]">
+                    <div className="order-1 flex min-h-[45vh] flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03] lg:order-2 lg:min-h-0">
                       <div className="mb-4 flex items-center justify-between gap-3">
                         <div className="p-4 pb-0">
                           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.parsedFlights}</p>
