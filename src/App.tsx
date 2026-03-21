@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, OCRExtractionResult, OCRFlightCandidate } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
-import { FlightCard } from './components/FlightCard';
+import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
-import { Languages, Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
+import { Languages, Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
@@ -14,9 +14,10 @@ type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onToggle: (id: string) => void;
+  t: any;
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
@@ -102,41 +103,12 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle}) => {
             exit={{ height: 0, opacity: 0 }}
             className="border-t border-white/5 bg-black/20 overflow-hidden"
           >
-            <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MapPin size={12} className="text-white/30" />
-                <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
-              </div>
-              <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{flight.terminal}</div>
-            </div>
-
-            {(flight.fc || flight.richiesta || flight.tot) && (
-              <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">Baggage Details</span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {(flight.fc || flight.richiesta) && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] text-white/30 font-bold w-10 shrink-0 mt-0.5">REQ</span>
-                      <div className="flex flex-wrap items-center gap-x-2">
-                        {flight.fc && <span className="text-xs text-amber-500 font-black tracking-wider">{flight.fc}</span>}
-                        {flight.richiesta && <span className="text-xs text-white/90 font-medium leading-relaxed italic">{flight.richiesta}</span>}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-white/30 font-bold w-10 shrink-0">NUM</span>
-                    <span className="text-xs text-white/90 font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">{flight.tot || '-'}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="px-4 py-3 text-xs text-white/65 flex items-center justify-between">
-              <span className="uppercase tracking-[0.2em] text-white/35">Confidence</span>
-              <span className="font-black text-emerald-300">{Math.round(flight.confidence * 100)}%</span>
-            </div>
+            <FlightCardExpandedContent
+              flight={flight}
+              posType={posType}
+              t={t}
+              confidence={flight.confidence}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -145,6 +117,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle}) => {
 };
 
 export default function App() {
+  const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
   const [state, setState] = useState<AppState>({
     flights: MOCK_FLIGHTS,
     language: 'it',
@@ -161,6 +134,7 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<({ flights: OCRReviewFlight[]; text: string; previewUrl: string; fileName: string }) | null>(null);
+  const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | 'Scivolo' | 'Nastro'>('All');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
@@ -218,6 +192,7 @@ export default function App() {
   };
 
   const closeOcrReview = () => {
+    setOcrReviewTypeFilter('All');
     setOcrReview(prev => {
       if (prev?.previewUrl) {
         URL.revokeObjectURL(prev.previewUrl);
@@ -250,6 +225,22 @@ export default function App() {
         flights: prev.flights.map(flight => ({...flight, selected})),
       };
     });
+  };
+
+  const setOcrSelectionByType = (type: 'Scivolo' | 'Nastro') => {
+    setOcrReview(prev => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        flights: prev.flights.map(flight => ({
+          ...flight,
+          selected: getPositionType(flight.terminal, flight.position) === type,
+        })),
+      };
+    });
+    setOcrReviewTypeFilter(type);
   };
 
   const handleImportFlights = () => {
@@ -322,10 +313,10 @@ export default function App() {
     } else {
       try {
         const copied = await copyFlightsToClipboard(filteredFlights);
-        setCopyFeedback(copied ? 'Copied event text.' : 'Clipboard copy failed.');
+        setCopyFeedback(copied ? t.copiedEventText : t.clipboardCopyFailed);
       } catch (error) {
         console.error('Clipboard copy failed', error);
-        setCopyFeedback('Clipboard copy failed.');
+        setCopyFeedback(t.clipboardCopyFailed);
       }
     }
     setShowCalendarMenu(false);
@@ -357,6 +348,11 @@ export default function App() {
   }, [copyFeedback]);
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
+  const visibleOcrFlights = ocrReview
+    ? ocrReview.flights.filter((flight) => (
+        ocrReviewTypeFilter === 'All' || getPositionType(flight.terminal, flight.position) === ocrReviewTypeFilter
+      ))
+    : [];
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
@@ -368,38 +364,119 @@ export default function App() {
               <Plane className="text-black" size={24} />
             </div>
             <h1 className="text-xl font-black tracking-tighter uppercase italic">
-              {t.appTitle}
+              {currentView === 'settings' ? t.settings : t.appTitle}
             </h1>
           </div>
-          <Clock />
+          <div className="flex items-center gap-2">
+            {currentView === 'settings' ? (
+              <button
+                onClick={() => setCurrentView('board')}
+                className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+              >
+                <ArrowLeft size={14} />
+                {t.backToBoard}
+              </button>
+            ) : (
+              <button
+                onClick={() => setCurrentView('settings')}
+                className="rounded-xl border border-white/10 p-2 text-white/60 transition-all hover:bg-white/5 hover:text-white"
+                aria-label={t.settings}
+              >
+                <Settings size={18} />
+              </button>
+            )}
+            <Clock />
+          </div>
         </div>
       </header>
 
-      {/* Sticky Search Bar */}
-      <div className="sticky top-0 z-40 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-white/5 px-4 py-3">
-        <div className="max-w-4xl mx-auto">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-emerald-500 transition-colors" size={18} />
-            <input 
-              type="text"
-              placeholder={state.language === 'it' ? 'Cerca volo, baia o destinazione...' : 'Search flight, bay or destination...'}
-              value={state.searchQuery}
-              onChange={(e) => setState(prev => ({ ...prev, searchQuery: e.target.value }))}
-              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-10 text-sm focus:outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all"
-            />
-            {state.searchQuery && (
-              <button 
-                onClick={() => setState(prev => ({ ...prev, searchQuery: '' }))}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
-              >
-                <X size={16} />
-              </button>
-            )}
+      {currentView === 'board' && (
+        <>
+          {/* Sticky Search Bar */}
+          <div className="sticky top-0 z-40 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-white/5 px-4 py-3">
+            <div className="max-w-4xl mx-auto">
+              <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                <input 
+                  type="text"
+                  placeholder={state.language === 'it' ? 'Cerca volo, baia o destinazione...' : 'Search flight, bay or destination...'}
+                  value={state.searchQuery}
+                  onChange={(e) => setState(prev => ({ ...prev, searchQuery: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-10 text-sm focus:outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all"
+                />
+                {state.searchQuery && (
+                  <button 
+                    onClick={() => setState(prev => ({ ...prev, searchQuery: '' }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       <main className="max-w-4xl mx-auto p-4 pb-32">
+        {currentView === 'settings' ? (
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5 shadow-2xl">
+              <div className="mb-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.languageSettings}</p>
+                <p className="mt-2 text-sm text-white/50">{t.languageDescription}</p>
+              </div>
+              <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-2">
+                <div className="flex bg-black/20 p-1 rounded-full border border-white/5">
+                  {([
+                    { key: 'it', label: t.italian },
+                    { key: 'en', label: t.english },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.key}
+                      onClick={() => setState(prev => ({ ...prev, language: option.key }))}
+                      className={`flex-1 rounded-full px-4 py-2 text-sm font-bold transition-all ${
+                        state.language === option.key
+                          ? 'bg-blue-500 text-white'
+                          : 'text-white/50 hover:text-white'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5 shadow-2xl">
+              <div className="mb-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">{t.debug}</p>
+                <p className="mt-2 text-sm text-white/50">{t.debugDescription}</p>
+              </div>
+              <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-white">{t.showDummyData}</p>
+                    <p className="text-xs text-white/45">
+                      {state.showMockFlights ? t.showDummy : t.hideDummy}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setState(prev => ({ ...prev, showMockFlights: !prev.showMockFlights }))}
+                    className={`min-w-24 rounded-full px-4 py-2 text-xs font-bold transition-all ${
+                      state.showMockFlights
+                        ? 'bg-emerald-500 text-black'
+                        : 'bg-white/10 text-white/70 hover:bg-white/15'
+                    }`}
+                  >
+                    {state.showMockFlights ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Controls */}
         <div className="flex flex-wrap gap-2 mb-6">
           <input
@@ -410,15 +487,6 @@ export default function App() {
             capture="environment"
             className="hidden"
           />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isExtracting}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all disabled:opacity-60"
-          >
-            {isExtracting ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-            {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : 'Scan Sheet'}
-          </button>
-
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
             {(['T1', 'T3'] as const).map((term) => (
               <button
@@ -445,17 +513,6 @@ export default function App() {
             {state.showPast ? t.showPast : t.hidePast}
           </button>
 
-          <button
-            onClick={() => setState(prev => ({ ...prev, showMockFlights: !prev.showMockFlights }))}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-              state.showMockFlights
-                ? 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-                : 'bg-emerald-500 text-black border-emerald-500'
-            }`}
-          >
-            {state.showMockFlights ? 'Hide Dummy' : 'Show Dummy'}
-          </button>
-
           <button 
             onClick={() => setState(prev => ({ ...prev, showFocusOnly: !prev.showFocusOnly }))}
             className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
@@ -465,7 +522,7 @@ export default function App() {
             }`}
           >
             <div className={`w-2 h-2 rounded-full ${state.showFocusOnly ? 'bg-black animate-pulse' : 'bg-amber-500'}`} />
-            FOCUS (30-90m)
+            {t.focusLabel} (30-90m)
           </button>
 
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
@@ -479,7 +536,7 @@ export default function App() {
                     : 'text-white/40 hover:text-white/60'
                 }`}
               >
-                {type === 'All' ? 'TUTTI' : type.toUpperCase()}
+                {type === 'All' ? t.all : type.toUpperCase()}
               </button>
             ))}
           </div>
@@ -516,13 +573,6 @@ export default function App() {
             ))}
           </div>
           
-          <button 
-            onClick={toggleLanguage}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 transition-all"
-          >
-            <Languages size={14} />
-            {state.language.toUpperCase()}
-          </button>
         </div>
 
         {ocrError && (
@@ -543,7 +593,7 @@ export default function App() {
           {filteredFlights.length === 0 ? (
             <div className="text-center py-20 text-white/20">
               <Plane size={48} className="mx-auto mb-4 opacity-10" />
-              <p>No flights scheduled</p>
+              <p>{t.noFlightsScheduled}</p>
             </div>
           ) : (
             filteredFlights.map((flight, index) => {
@@ -589,12 +639,29 @@ export default function App() {
             })
           )}
         </div>
+        </>
+        )}
       </main>
 
       {/* Bottom Bar */}
       <div className="fixed bottom-6 right-6 z-[100] pointer-events-none">
         <div className="flex justify-end pointer-events-auto">
           <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex gap-2 shadow-2xl">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isExtracting}
+              className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
+                isExtracting
+                  ? 'bg-emerald-500/15 text-emerald-300'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              } disabled:opacity-70`}
+              aria-label={t.scanSheet}
+            >
+              {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+              <span className="text-[10px] font-bold uppercase tracking-widest">
+                {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : t.scanSheet}
+              </span>
+            </button>
             <div className="relative" ref={calendarMenuRef}>
               <AnimatePresence>
                 {showCalendarMenu && (
@@ -606,7 +673,7 @@ export default function App() {
                   >
                     <div className="px-3 py-2 border-b border-white/5 mb-1">
                       <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                        {state.language === 'it' ? 'Esporta' : 'Export'} ({filteredFlights.length} {state.language === 'it' ? 'voli' : 'flights'})
+                        {t.export} ({filteredFlights.length} {t.flights})
                       </p>
                     </div>
                     <button 
@@ -616,14 +683,12 @@ export default function App() {
                       <Download size={16} className="text-blue-400" />
                       <div className="flex flex-col">
                         <span className="font-bold">Apple / Outlook / ICS</span>
-                        <span className="text-[10px] text-white/40">{state.language === 'it' ? 'Scarica file per importazione multipla' : 'Download file for bulk import'}</span>
+                        <span className="text-[10px] text-white/40">{t.downloadBulkImport}</span>
                       </div>
                     </button>
                     <div className="px-3 py-2 bg-white/[0.02] rounded-xl mt-1">
                       <p className="text-[9px] text-white/30 leading-relaxed italic">
-                        {state.language === 'it' 
-                          ? 'Su mobile: scarica il file ICS e aprilo per aggiungere tutti i voli al calendario di sistema.' 
-                          : 'On mobile: download the ICS file and open it to add all flights to your system calendar.'}
+                        {t.mobileIcsHint}
                       </p>
                     </div>
                     <button 
@@ -632,9 +697,9 @@ export default function App() {
                     >
                       <Copy size={16} className="text-emerald-400" />
                       <div className="flex flex-col">
-                        <span className="font-bold">Copy for AI</span>
+                        <span className="font-bold">{t.copyForAi}</span>
                         <span className="text-[10px] text-white/40">
-                          {state.language === 'it' ? 'Copia testo eventi per i voli visibili' : 'Copy event text for visible flights'}
+                          {t.copyEventText}
                         </span>
                       </div>
                     </button>
@@ -670,7 +735,7 @@ export default function App() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/5 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">OCR Review</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">{t.ocrReview}</p>
                       <p className="text-sm text-white/60">{ocrReview.fileName}</p>
                     </div>
                     <button
@@ -684,16 +749,16 @@ export default function App() {
                     <div className="space-y-3">
                       <img
                         src={ocrReview.previewUrl}
-                        alt="Uploaded flight sheet"
+                        alt={t.uploadedFlightSheet}
                         className="w-full rounded-2xl border border-white/10 object-cover"
                       />
                       <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
                         <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">
                           <ScanText size={14} />
-                          Raw OCR Text
+                          {t.rawOcrText}
                         </div>
                         <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap text-xs leading-5 text-white/70">
-                          {ocrReview.text.trim() || 'No text was recognized from this image.'}
+                          {ocrReview.text.trim() || t.noOcrTextRecognized}
                         </pre>
                       </div>
                     </div>
@@ -701,21 +766,48 @@ export default function App() {
                     <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03]">
                       <div className="mb-4 flex items-center justify-between gap-3">
                         <div className="p-4 pb-0">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">Parsed Flights</p>
-                          <p className="text-sm text-white/50">Uncheck anything you do not want to add.</p>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.parsedFlights}</p>
+                          <p className="text-sm text-white/50">{t.parsedFlightsHint}</p>
                         </div>
-                        <div className="flex items-center gap-2 p-4 pb-0">
+                        <div className="flex flex-wrap items-center justify-end gap-2 p-4 pb-0">
+                          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                            {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
+                              <button
+                                key={type}
+                                onClick={() => setOcrReviewTypeFilter(type)}
+                                className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
+                                  ocrReviewTypeFilter === type
+                                    ? 'bg-blue-500 text-white'
+                                    : 'text-white/40 hover:text-white/60'
+                                }`}
+                              >
+                                {type === 'All' ? t.all : type === 'Scivolo' ? 'SCIVOLI' : 'NASTRI'}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => setOcrSelectionByType('Scivolo')}
+                            className="rounded-full border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-200 transition-all hover:bg-amber-500/10"
+                          >
+                            {t.onlyScivoli}
+                          </button>
+                          <button
+                            onClick={() => setOcrSelectionByType('Nastro')}
+                            className="rounded-full border border-cyan-500/20 px-3 py-1 text-xs font-bold text-cyan-200 transition-all hover:bg-cyan-500/10"
+                          >
+                            {t.onlyNastri}
+                          </button>
                           <button
                             onClick={() => toggleAllOcrCandidates(true)}
                             className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
                           >
-                            All
+                            {t.all}
                           </button>
                           <button
                             onClick={() => toggleAllOcrCandidates(false)}
                             className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
                           >
-                            None
+                            {t.none}
                           </button>
                           <div className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70">
                             {selectedOcrCount}/{ocrReview.flights.length}
@@ -725,13 +817,17 @@ export default function App() {
 
                       {ocrReview.flights.length === 0 ? (
                         <div className="mx-4 mb-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
-                          No complete flights were parsed. Try a straighter image with full rows visible.
+                          {t.noCompleteFlightsParsed}
+                        </div>
+                      ) : visibleOcrFlights.length === 0 ? (
+                        <div className="mx-4 mb-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
+                          {t.noFlightsMatchTypeFilter}
                         </div>
                       ) : (
                         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
                           <div className="space-y-3">
-                          {ocrReview.flights.map((flight: OCRReviewFlight) => (
-                            <OCRPreviewCard key={flight.id} flight={flight} onToggle={toggleOcrCandidate} />
+                          {visibleOcrFlights.map((flight: OCRReviewFlight) => (
+                            <OCRPreviewCard key={flight.id} flight={flight} onToggle={toggleOcrCandidate} t={t} />
                           ))}
                           </div>
                         </div>
@@ -742,7 +838,7 @@ export default function App() {
 
                 <div className="rounded-2xl border border-white/5 bg-black/30 p-3">
                   <div className="flex items-center justify-between text-xs text-white/50">
-                    <span>Selected</span>
+                    <span>{t.selected}</span>
                     <span className="font-black text-white">{selectedOcrCount}</span>
                   </div>
                   <div className="mt-3 flex gap-2">
@@ -750,7 +846,7 @@ export default function App() {
                       onClick={closeOcrReview}
                       className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
                     >
-                      Cancel
+                      {t.cancel}
                     </button>
                     <button
                       onClick={handleImportFlights}
@@ -759,7 +855,7 @@ export default function App() {
                     >
                       <span className="inline-flex items-center gap-2">
                         <Plus size={14} />
-                        Add
+                        {t.add}
                       </span>
                     </button>
                   </div>
