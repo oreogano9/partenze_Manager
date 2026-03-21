@@ -67,11 +67,15 @@ export const formatFlightForClipboard = (flight: Flight): string => {
   const dateLabel = isToday(endDate) ? 'Today' : formatLocalDate(endDate);
   const positionLabel = flight.position.trim() || 'X';
 
-  return `${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`;
+  return `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`;
 };
 
 export const formatFlightsForClipboard = (flights: Flight[]): string => {
-  return flights.map(formatFlightForClipboard).join('\n');
+  if (flights.length === 0) {
+    return '';
+  }
+
+  return `Add these as separate google calendar events for today:\n${flights.map(formatFlightForClipboard).join('\n')}`;
 };
 
 export const copyFlightsToClipboard = async (flights: Flight[]) => {
