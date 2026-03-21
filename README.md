@@ -17,11 +17,13 @@ View your app in AI Studio: https://ai.studio/apps/e5f0819c-8fe8-4014-8a9d-d8901
    `npm install`
 2. Create `.env.local` with:
    `OPENAI_API_KEY=...`
+   `BLOB_READ_WRITE_TOKEN=...`
 3. Run the app:
    `npm run dev`
 
 ## Deploy on Vercel
 
 - Add `OPENAI_API_KEY` as a Vercel environment variable
+- Add `BLOB_READ_WRITE_TOKEN` as a Vercel environment variable
 - Do not commit `.env.local` or any real API key files
-- The app calls `/api/extract-flights` server-side so the key does not reach the browser
+- The app uploads the image through your server route, stores it in Blob, and calls OpenAI from the server so the key does not reach the browser

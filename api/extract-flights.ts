@@ -1,16 +1,5 @@
+import {put} from '@vercel/blob';
 import {extractFlightsWithOpenAI} from '../server/openaiVision';
-
-const readBody = (body: unknown) => {
-  if (!body) {
-    return {};
-  }
-
-  if (typeof body === 'string') {
-    return JSON.parse(body) as {imageDataUrl?: string};
-  }
-
-  return body as {imageDataUrl?: string};
-};
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -19,13 +8,20 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const body = readBody(req.body);
-    if (!body.imageDataUrl) {
-      res.status(400).json({error: 'Missing imageDataUrl'});
+    const formData = await req.formData();
+    const file = formData.get('image');
+
+    if (!(file instanceof File)) {
+      res.status(400).json({error: 'Missing image upload'});
       return;
     }
 
-    const result = await extractFlightsWithOpenAI(body.imageDataUrl);
+    const blob = await put(`ocr-uploads/${Date.now()}-${file.name}`, file, {
+      access: 'public',
+      addRandomSuffix: true,
+    });
+
+    const result = await extractFlightsWithOpenAI(blob.url);
     res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Flight extraction failed';

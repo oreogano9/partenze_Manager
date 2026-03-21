@@ -69,17 +69,19 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const fileToDataUrl = async (file: File) => {
-  try {
-    return await resizeImageToDataUrl(file);
-  } catch {
-    return readFileAsDataUrl(file);
-  }
+const dataUrlToBlob = async (dataUrl: string) => {
+  const response = await fetch(dataUrl);
+  return response.blob();
 };
 
-const estimateBytesFromDataUrl = (dataUrl: string) => {
-  const base64 = dataUrl.split(',')[1] || '';
-  return Math.ceil((base64.length * 3) / 4);
+const optimizeImageFile = async (file: File) => {
+  try {
+    const dataUrl = await resizeImageToDataUrl(file);
+    const blob = await dataUrlToBlob(dataUrl);
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', {type: 'image/jpeg'});
+  } catch {
+    return file;
+  }
 };
 
 export const extractFlightsFromImage = async (
@@ -88,19 +90,19 @@ export const extractFlightsFromImage = async (
 ): Promise<OCRExtractionResult> => {
   try {
     onProgress?.(0.1);
-    const imageDataUrl = await fileToDataUrl(image);
+    const optimizedImage = await optimizeImageFile(image);
     onProgress?.(0.35);
 
-    if (estimateBytesFromDataUrl(imageDataUrl) > 2_500_000) {
-      throw new Error('Image still too large after compression. Try cropping tighter around the flight table.');
+    if (optimizedImage.size > 4_000_000) {
+      throw new Error('Image is still too large. Try cropping tighter around the flight table.');
     }
+
+    const formData = new FormData();
+    formData.append('image', optimizedImage);
 
     const response = await fetch('/api/extract-flights', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({imageDataUrl}),
+      body: formData,
     });
 
     if (!response.ok) {

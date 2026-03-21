@@ -99,7 +99,7 @@ const getMessageText = (content: unknown) => {
   return '';
 };
 
-export const extractFlightsWithOpenAI = async (imageDataUrl: string): Promise<OCRExtractionResult> => {
+export const extractFlightsWithOpenAI = async (imageUrl: string): Promise<OCRExtractionResult> => {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -132,7 +132,7 @@ export const extractFlightsWithOpenAI = async (imageDataUrl: string): Promise<OC
             {
               type: 'image_url',
               image_url: {
-                url: imageDataUrl,
+                url: imageUrl,
                 detail: 'high',
               },
             },
