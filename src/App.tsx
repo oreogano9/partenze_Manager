@@ -287,7 +287,10 @@ export default function App() {
       const previewUrl = URL.createObjectURL(file);
       setOcrReview({
         text: result.text,
-        flights: result.flights.map(flight => ({...flight, selected: true})),
+        flights: result.flights.map(flight => ({
+          ...flight,
+          selected: new Date(flight.std).getTime() > Date.now(),
+        })),
         previewUrl,
         fileName: file.name,
       });
