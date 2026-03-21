@@ -234,6 +234,7 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
   const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | 'Scivolo' | 'Nastro'>('All');
+  const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
@@ -290,6 +291,7 @@ export default function App() {
 
   const closeOcrReview = () => {
     setOcrReviewTypeFilter('All');
+    setMobileOcrPanel('flights');
     setOcrReview(prev => {
       prev?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
       return null;
@@ -384,6 +386,7 @@ export default function App() {
 
         if (!prev) {
           setOcrReviewTypeFilter('All');
+          setMobileOcrPanel('flights');
           return {
             text: result.text,
             flights: nextFlights,
@@ -724,6 +727,22 @@ export default function App() {
                 </div>
                 <p className="text-xl font-black text-white">{t.noFlightsScheduled}</p>
                 <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.emptyStateHint}</p>
+                <div className="mt-6">
+                  <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">{t.scanTerminalLabel}</p>
+                  <div className="mx-auto inline-flex bg-white/5 p-1 rounded-full border border-white/10">
+                    {(['T1', 'T3'] as const).map((term) => (
+                      <button
+                        key={term}
+                        onClick={() => setScanTerminal(term)}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                          scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
+                        }`}
+                      >
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isExtracting}
@@ -788,21 +807,37 @@ export default function App() {
           <div className="flex justify-end pointer-events-auto">
             <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex gap-2 shadow-2xl">
               {currentView !== 'settings' && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isExtracting}
-                  className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
-                    isExtracting
-                      ? 'bg-emerald-500/15 text-emerald-300'
-                      : 'text-white/60 hover:text-white hover:bg-white/5'
-                  } disabled:opacity-70`}
-                  aria-label={t.scanSheet}
-                >
-                  {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                  <span className="text-[10px] font-bold uppercase tracking-widest">
-                    {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.scanSheet}
-                  </span>
-                </button>
+                <>
+                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 items-center">
+                    {(['T1', 'T3'] as const).map((term) => (
+                      <button
+                        key={term}
+                        onClick={() => setScanTerminal(term)}
+                        className={`px-3 py-2 rounded-lg text-[10px] font-bold transition-all ${
+                          scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
+                        }`}
+                        aria-label={`${t.scanTerminalLabel}: ${term}`}
+                      >
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isExtracting}
+                    className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
+                      isExtracting
+                        ? 'bg-emerald-500/15 text-emerald-300'
+                        : 'text-white/60 hover:text-white hover:bg-white/5'
+                    } disabled:opacity-70`}
+                    aria-label={t.scanSheet}
+                  >
+                    {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                    <span className="text-[10px] font-bold uppercase tracking-widest">
+                      {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : `${t.scanSheet} ${scanTerminal}`}
+                    </span>
+                  </button>
+                </>
               )}
               <div className="relative" ref={calendarMenuRef}>
                 <AnimatePresence>
@@ -902,8 +937,28 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[0.85fr_1.15fr]">
-                    <div className="order-2 space-y-3 lg:order-1">
+                  <div className="px-4 pt-4 lg:hidden">
+                    <div className="flex rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+                      <button
+                        onClick={() => setMobileOcrPanel('flights')}
+                        className={`flex-1 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                          mobileOcrPanel === 'flights' ? 'bg-blue-500 text-white' : 'text-white/50 hover:text-white'
+                        }`}
+                      >
+                        {t.ocrFlightsTab}
+                      </button>
+                      <button
+                        onClick={() => setMobileOcrPanel('photo')}
+                        className={`flex-1 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                          mobileOcrPanel === 'photo' ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white'
+                        }`}
+                      >
+                        {t.ocrPhotoTab}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="hidden min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid lg:grid-cols-[0.85fr_1.15fr]">
+                    <div className="space-y-3">
                       {latestOcrPreview && (
                         <img
                           src={latestOcrPreview.previewUrl}
@@ -937,11 +992,11 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="order-1 flex min-h-[45vh] flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03] lg:order-2 lg:min-h-0">
-                      <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03]">
+                      <div className="mb-4 flex items-start justify-between gap-3">
                         <div className="p-4 pb-0">
                           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.parsedFlights}</p>
-                          <p className="text-sm text-white/50">{t.parsedFlightsHint}</p>
+                          <p className="mt-1 text-sm text-white/50">{t.parsedFlightsHint}</p>
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2 p-4 pb-0">
                           <button
@@ -1013,6 +1068,118 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-hidden p-4 lg:hidden">
+                    {mobileOcrPanel === 'flights' ? (
+                      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-white/[0.03]">
+                        <div className="border-b border-white/5 p-4 pb-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.parsedFlights}</p>
+                            <div className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70">
+                              {selectedOcrCount}/{ocrReview.flights.length}
+                            </div>
+                          </div>
+                          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                            <button
+                              onClick={() => setOcrSelectionByType('Scivolo')}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                ocrReviewTypeFilter === 'Scivolo'
+                                  ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
+                                  : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
+                              }`}
+                            >
+                              {t.onlyScivoli}
+                            </button>
+                            <button
+                              onClick={() => setOcrSelectionByType('Nastro')}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                ocrReviewTypeFilter === 'Nastro'
+                                  ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
+                                  : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
+                              }`}
+                            >
+                              {t.onlyNastri}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setOcrReviewTypeFilter('All');
+                                toggleAllOcrCandidates(true);
+                              }}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                ocrReviewTypeFilter === 'All'
+                                  ? 'border-white/20 bg-white/10 text-white'
+                                  : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
+                              }`}
+                            >
+                              {t.all}
+                            </button>
+                            <button
+                              onClick={() => toggleAllOcrCandidates(false)}
+                              className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                            >
+                              {t.none}
+                            </button>
+                          </div>
+                        </div>
+                        {ocrReview.flights.length === 0 ? (
+                          <div className="m-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
+                            {t.noCompleteFlightsParsed}
+                          </div>
+                        ) : visibleOcrFlights.length === 0 ? (
+                          <div className="m-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
+                            {t.noFlightsMatchTypeFilter}
+                          </div>
+                        ) : (
+                          <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+                            <div className="space-y-3">
+                              {visibleOcrFlights.map((flight: OCRReviewFlight) => (
+                                <OCRPreviewCard
+                                  key={flight.id}
+                                  flight={flight}
+                                  onToggle={toggleOcrCandidate}
+                                  t={t}
+                                  mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="h-full overflow-auto space-y-3">
+                        {latestOcrPreview && (
+                          <img
+                            src={latestOcrPreview.previewUrl}
+                            alt={t.uploadedFlightSheet}
+                            className="w-full rounded-2xl border border-white/10 object-cover"
+                          />
+                        )}
+                        <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">{t.latestImage}</div>
+                            <div className="text-xs text-white/40 truncate">
+                              {latestOcrPreview?.fileName}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {ocrReview.previews.map((preview, index) => (
+                              <div key={`${preview.fileName}-${index}`} className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold text-white/60">
+                                {preview.fileName}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                          <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.25em] text-white/40">
+                            <ScanText size={14} />
+                            {t.rawOcrText}
+                          </div>
+                          <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap text-xs leading-5 text-white/70">
+                            {ocrReview.text.trim() || t.noOcrTextRecognized}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
