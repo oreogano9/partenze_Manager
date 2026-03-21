@@ -4,7 +4,7 @@ import {IncomingMessage, ServerResponse} from 'node:http';
 import path from 'path';
 import {defineConfig} from 'vite';
 import {handleUpload} from '@vercel/blob/client';
-import {extractFlightsWithOpenAI} from './api/_openaiVision';
+import {extractFlightsWithOpenAI} from './api/_openaiVision.js';
 
 const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
 
