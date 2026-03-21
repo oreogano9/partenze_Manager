@@ -62,7 +62,7 @@ export const MOCK_FLIGHTS: Flight[] = [
 
 export const TRANSLATIONS = {
   it: {
-    appTitle: 'GroundLoad Pro',
+    appTitle: 'Partenze Manager',
     terminal: 'Terminal',
     position: 'Posizione',
     std: 'STD',
@@ -130,7 +130,7 @@ export const TRANSLATIONS = {
     language: 'Lingua'
   },
   en: {
-    appTitle: 'GroundLoad Pro',
+    appTitle: 'Partenze Manager',
     terminal: 'Terminal',
     position: 'Position',
     std: 'STD',

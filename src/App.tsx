@@ -216,7 +216,7 @@ export default function App() {
     filterType: 'All',
     searchQuery: '',
     showFocusOnly: false,
-    showMockFlights: true
+    showMockFlights: false
   });
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>('ALL');
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>('T1');
