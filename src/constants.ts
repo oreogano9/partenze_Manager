@@ -1,0 +1,106 @@
+
+import { Flight, TerminalType, PositionType } from './types';
+
+export const getPositionType = (terminal: TerminalType, position: string): PositionType => {
+  const posNum = parseInt(position, 10);
+  
+  if (terminal === 'T1') {
+    if ((posNum >= 1 && posNum <= 11) || (posNum >= 40 && posNum <= 48)) return 'Scivolo';
+    if (posNum === 39 || posNum === 46) return 'Nastro';
+    return 'Baia';
+  } else {
+    // T2
+    const t2Scivoli = [14, 16, 18, 20, 22, 24, 26, 28, 32, 34, 36, 38, 40, 42]; // Even 14-42 excl 30
+    if (t2Scivoli.includes(posNum)) return 'Scivolo';
+    if ([6, 8, 10, 12].includes(posNum)) return 'Baia';
+    return 'Nastro';
+  }
+};
+
+const now = Date.now();
+const getRelativeTime = (hours: number, minutes: number) => {
+  // Base is 05:45
+  const baseMinutes = 5 * 60 + 45;
+  const targetMinutes = hours * 60 + minutes;
+  const offsetMs = (targetMinutes - baseMinutes) * 60000;
+  return new Date(now + offsetMs).toISOString();
+};
+
+export const MOCK_FLIGHTS: Flight[] = [
+  { id: '1', flightNumber: 'FR 6342', destination: 'BCN', std: getRelativeTime(5, 45), terminal: 'T1', position: '45', tags: ['Smistato'] },
+  { id: '2', flightNumber: 'FR 9903', destination: 'LIS', std: getRelativeTime(5, 45), terminal: 'T1', position: '44', tags: ['Smistato'] },
+  { id: '3', flightNumber: 'FR 2984', destination: 'BRU', std: getRelativeTime(5, 55), terminal: 'T1', position: '43', tags: ['Smistato'] },
+  { id: '4', flightNumber: 'FR 1644', destination: 'VIE', std: getRelativeTime(6, 5), terminal: 'T1', position: '42', tags: ['Smistato'] },
+  { id: '5', flightNumber: 'FR 5822', destination: 'LPA', std: getRelativeTime(6, 50), terminal: 'T1', position: '41', tags: ['Smistato'] },
+  { id: '6', flightNumber: 'FR 8445', destination: 'SVQ', std: getRelativeTime(6, 55), terminal: 'T1', position: '40', tags: ['Smistato'] },
+  { id: '7', flightNumber: 'LH 1873', destination: 'MUC', std: getRelativeTime(7, 0), terminal: 'T1', position: '50', tags: ['Smistato'], fc: 'CARR', richiesta: '1BL / 2BT / 1BS', tot: '4AKH' },
+  { id: '8', flightNumber: 'LH 243', destination: 'FRA', std: getRelativeTime(7, 5), terminal: 'T1', position: '49', tags: ['Smistato'], fc: 'CARR', richiesta: '1BL / 4BT / 2 IAH 440', tot: '7AKH' },
+  { id: '9', flightNumber: 'IB 658', destination: 'MAD', std: getRelativeTime(7, 30), terminal: 'T1', position: '39', tags: ['Smistato'], fc: 'CARR', richiesta: '2BL / 2BT / 1BS', tot: '5AKH' },
+  { id: '10', flightNumber: 'DX 1701', destination: 'AOI', std: getRelativeTime(7, 40), terminal: 'T1', position: '46', tags: ['Smistato'] },
+  { id: '11', flightNumber: 'FR 4902', destination: 'PMO', std: getRelativeTime(8, 0), terminal: 'T1', position: '48', tags: ['Smistato'] },
+  { id: '12', flightNumber: 'FR 1170', destination: 'CTA', std: getRelativeTime(8, 35), terminal: 'T1', position: '44', tags: ['Smistato'] },
+  { id: '13', flightNumber: 'FR 999', destination: 'VLC', std: getRelativeTime(8, 40), terminal: 'T1', position: '47', tags: ['Smistato'] },
+  { id: '14', flightNumber: 'FR 1198', destination: 'ATH', std: getRelativeTime(8, 45), terminal: 'T1', position: '45', tags: ['Smistato'] },
+  { id: '15', flightNumber: 'KM 613', destination: 'MLA', std: getRelativeTime(8, 55), terminal: 'T1', position: '39', tags: ['Smistato'] },
+  { id: '16', flightNumber: 'FR 9601', destination: 'MAD', std: getRelativeTime(9, 25), terminal: 'T1', position: '43', tags: ['Smistato'] },
+  { id: '17', flightNumber: 'FR 407', destination: 'CPH', std: getRelativeTime(9, 25), terminal: 'T1', position: '42', tags: ['Smistato'] },
+  { id: '18', flightNumber: 'LX 1727', destination: 'ZRH', std: getRelativeTime(9, 35), terminal: 'T1', position: '50', tags: ['Smistato'], richiesta: '2BL+FC / 2BT / 1BS', tot: '5AKH' },
+  { id: '19', flightNumber: 'FR 41', destination: 'BER', std: getRelativeTime(9, 35), terminal: 'T1', position: '41', tags: ['Smistato'] },
+  { id: '20', flightNumber: 'VY 6101', destination: 'BCN', std: getRelativeTime(9, 45), terminal: 'T1', position: '46', tags: ['Smistato'] },
+  { id: '21', flightNumber: 'LH 231', destination: 'FRA', std: getRelativeTime(9, 45), terminal: 'T1', position: '64', tags: ['Smistato'], fc: 'CARR', richiesta: '1BL / 4BT / 1 IAH UA 047-1 HND 716', tot: '7AKH' },
+  { id: '22', flightNumber: 'A3 551', destination: 'SKG', std: getRelativeTime(9, 45), terminal: 'T1', position: '', tags: ['Smistato'] },
+  { id: '23', flightNumber: 'EW 9883', destination: 'DUS', std: getRelativeTime(10, 5), terminal: 'T1', position: '39', tags: ['Smistato'] },
+  { id: '24', flightNumber: 'OS 552', destination: 'VIE', std: getRelativeTime(10, 15), terminal: 'T1', position: '49', tags: ['Smistato'], fc: 'CARR', richiesta: '5BL / 1BT / BS CARR', tot: '6AKH' },
+  { id: '25', flightNumber: 'VY 6255', destination: 'ORY', std: getRelativeTime(10, 20), terminal: 'T1', position: '46', tags: ['Smistato'] },
+  { id: '26', flightNumber: 'A3 651', destination: 'ATH', std: getRelativeTime(10, 35), terminal: 'T1', position: '64', tags: ['Smistato'] },
+  { id: '27', flightNumber: 'FR 5569', destination: 'DUB', std: getRelativeTime(10, 55), terminal: 'T1', position: '40', tags: ['Smistato'] },
+  { id: '28', flightNumber: 'FR 4906', destination: 'PMO', std: getRelativeTime(11, 20), terminal: 'T1', position: '45', tags: ['Smistato'] },
+  { id: '29', flightNumber: 'FR 5816', destination: 'BRI', std: getRelativeTime(11, 30), terminal: 'T1', position: '44', tags: ['Smistato'] },
+  { id: '30', flightNumber: 'VY 6103', destination: 'BCN', std: getRelativeTime(11, 45), terminal: 'T1', position: '39', tags: ['Smistato'] },
+  { id: '31', flightNumber: 'IB 648', destination: 'MAD', std: getRelativeTime(11, 55), terminal: 'T1', position: '', tags: ['Smistato'], richiesta: 'NON OPERA', tot: 'NOOP' },
+];
+
+export const TRANSLATIONS = {
+  it: {
+    appTitle: 'GroundLoad Pro',
+    terminal: 'Terminal',
+    position: 'Posizione',
+    std: 'STD',
+    target: 'Target',
+    status: 'Stato',
+    showPast: 'Mostra Passati',
+    hidePast: 'Nascondi Passati',
+    smistato: 'Smistato',
+    impilato: 'Impilato',
+    sottoBordo: 'Sotto Bordo',
+    tagMissing: 'TAG?',
+    rush: 'Rush',
+    priority: 'Priorità',
+    critical: 'CRITICO',
+    preparing: 'In chiusura',
+    boarding: 'In uscita',
+    departed: 'Decollato',
+    language: 'Lingua'
+  },
+  en: {
+    appTitle: 'GroundLoad Pro',
+    terminal: 'Terminal',
+    position: 'Position',
+    std: 'STD',
+    target: 'Target',
+    status: 'Status',
+    showPast: 'Show Past',
+    hidePast: 'Hide Past',
+    smistato: 'Sorted',
+    impilato: 'Stacked',
+    sottoBordo: 'Under Wing',
+    tagMissing: 'TAG?',
+    rush: 'Rush',
+    priority: 'Priority',
+    critical: 'CRITICAL',
+    preparing: 'Preparing',
+    boarding: 'Boarding',
+    departed: 'Departed',
+    language: 'Language'
+  }
+};

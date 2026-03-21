@@ -1,0 +1,5 @@
+{
+  "name": "GroundLoad Pro",
+  "description": "Airport ground operations manager for flight departures, terminal positions, and baggage loading protocols.",
+  "requestFramePermissions": []
+}
