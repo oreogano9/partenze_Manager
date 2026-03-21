@@ -642,9 +642,9 @@ export default function App() {
                 initial={{ opacity: 0, y: 20, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 20, scale: 0.98 }}
-                className="grid h-[90vh] w-full max-w-6xl gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl lg:grid-cols-[0.92fr_1.08fr]"
+                className="flex h-[90vh] w-full max-w-6xl flex-col gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl"
               >
-                <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-black/20">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/5 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">OCR Review</p>
@@ -717,36 +717,28 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent">
-                  <div className="min-h-0 flex-1 overflow-auto p-5">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/35">Add To Board</p>
-                    <p className="mt-2 text-xs text-white/50">
-                      Checked rows will be added to the live departures list.
-                    </p>
+                <div className="rounded-2xl border border-white/5 bg-black/30 p-3">
+                  <div className="flex items-center justify-between text-xs text-white/50">
+                    <span>Selected</span>
+                    <span className="font-black text-white">{selectedOcrCount}</span>
                   </div>
-                  <div className="border-t border-white/5 bg-black/30 p-3">
-                    <div className="flex items-center justify-between text-xs text-white/50">
-                      <span>Selected</span>
-                      <span className="font-black text-white">{selectedOcrCount}</span>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={closeOcrReview}
-                        className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleImportFlights}
-                        disabled={selectedOcrCount === 0}
-                        className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <Plus size={14} />
-                          Add
-                        </span>
-                      </button>
-                    </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={closeOcrReview}
+                      className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleImportFlights}
+                      disabled={selectedOcrCount === 0}
+                      className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Plus size={14} />
+                        Add
+                      </span>
+                    </button>
                   </div>
                 </div>
               </motion.div>
