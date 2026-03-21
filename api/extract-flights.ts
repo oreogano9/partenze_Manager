@@ -1,4 +1,5 @@
 import {extractFlightsWithOpenAI} from './_openaiVision.js';
+import type {TerminalType} from '../src/types';
 
 const readBody = (body: unknown) => {
   if (!body) {
@@ -6,10 +7,10 @@ const readBody = (body: unknown) => {
   }
 
   if (typeof body === 'string') {
-    return JSON.parse(body) as {imageUrl?: string};
+    return JSON.parse(body) as {imageUrl?: string; preferredTerminal?: TerminalType};
   }
 
-  return body as {imageUrl?: string};
+  return body as {imageUrl?: string; preferredTerminal?: TerminalType};
 };
 
 export default async function handler(req: any, res: any) {
@@ -25,7 +26,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const result = await extractFlightsWithOpenAI(body.imageUrl);
+    const result = await extractFlightsWithOpenAI(body.imageUrl, body.preferredTerminal);
     res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Flight extraction failed';

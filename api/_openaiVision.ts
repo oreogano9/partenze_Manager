@@ -38,9 +38,17 @@ const buildISODate = (hhmm: string) => {
   return date.toISOString();
 };
 
-const normalizeTerminal = (value: string): TerminalType => (value === 'T2' ? 'T2' : 'T1');
+const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): TerminalType => {
+  if (value === 'T3') {
+    return 'T3';
+  }
+  if (value === 'T1') {
+    return 'T1';
+  }
+  return preferredTerminal || 'T1';
+};
 
-const normalizeFlight = (raw: RawFlight, index: number): OCRFlightCandidate | null => {
+const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: TerminalType): OCRFlightCandidate | null => {
   const flightNumber = asString(raw.flightNumber).toUpperCase();
   const destination = asString(raw.destination).toUpperCase();
   const hhmm = normalizeTime(asString(raw.std));
@@ -57,7 +65,7 @@ const normalizeFlight = (raw: RawFlight, index: number): OCRFlightCandidate | nu
     flightNumber,
     destination,
     std: buildISODate(hhmm),
-    terminal: normalizeTerminal(asString(raw.terminal).toUpperCase()),
+    terminal: normalizeTerminal(asString(raw.terminal).toUpperCase(), preferredTerminal),
     position: asString(raw.position).toUpperCase(),
     tags: ['Smistato'],
     fc: asString(raw.fc).toUpperCase() || undefined,
@@ -68,14 +76,14 @@ const normalizeFlight = (raw: RawFlight, index: number): OCRFlightCandidate | nu
   };
 };
 
-const normalizeResponse = (payload: unknown): OCRExtractionResult => {
+const normalizeResponse = (payload: unknown, preferredTerminal?: TerminalType): OCRExtractionResult => {
   const object = payload && typeof payload === 'object' ? (payload as {text?: unknown; flights?: unknown}) : {};
   const rawFlights = Array.isArray(object.flights) ? (object.flights as RawFlight[]) : [];
 
   return {
     text: asString(object.text),
     flights: rawFlights
-      .map((flight, index) => normalizeFlight(flight, index))
+      .map((flight, index) => normalizeFlight(flight, index, preferredTerminal))
       .filter((flight): flight is OCRFlightCandidate => Boolean(flight)),
   };
 };
@@ -99,7 +107,7 @@ const getMessageText = (content: unknown) => {
   return '';
 };
 
-export const extractFlightsWithOpenAI = async (imageUrl: string): Promise<OCRExtractionResult> => {
+export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTerminal?: TerminalType): Promise<OCRExtractionResult> => {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -119,7 +127,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string): Promise<OCRExt
         {
           role: 'system',
           content:
-            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T2","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":""}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time.',
+            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":""}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time.',
         },
         {
           role: 'user',
@@ -127,7 +135,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string): Promise<OCRExt
             {
               type: 'text',
               text:
-                'Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing.',
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
             },
             {
               type: 'image_url',
@@ -155,5 +163,5 @@ export const extractFlightsWithOpenAI = async (imageUrl: string): Promise<OCRExt
     throw new Error('OpenAI returned no JSON content');
   }
 
-  return normalizeResponse(JSON.parse(text));
+  return normalizeResponse(JSON.parse(text), preferredTerminal);
 };

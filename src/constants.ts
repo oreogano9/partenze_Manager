@@ -9,9 +9,9 @@ export const getPositionType = (terminal: TerminalType, position: string): Posit
     if (posNum === 39 || posNum === 46) return 'Nastro';
     return 'Nastro';
   } else {
-    // T2
-    const t2Scivoli = [14, 16, 18, 20, 22, 24, 26, 28, 32, 34, 36, 38, 40, 42]; // Even 14-42 excl 30
-    if (t2Scivoli.includes(posNum)) return 'Scivolo';
+    // T3
+    const t3Scivoli = [14, 16, 18, 20, 22, 24, 26, 28, 32, 34, 36, 38, 40, 42]; // Even 14-42 excl 30
+    if (t3Scivoli.includes(posNum)) return 'Scivolo';
     if ([6, 8, 10, 12].includes(posNum)) return 'Nastro';
     return 'Nastro';
   }

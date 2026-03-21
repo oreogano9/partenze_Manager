@@ -1,5 +1,5 @@
 import {upload} from '@vercel/blob/client';
-import {OCRExtractionResult} from '../types';
+import {OCRExtractionResult, TerminalType} from '../types';
 
 const fileToImage = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -105,6 +105,7 @@ const optimizeImageFile = async (file: File) => {
 
 export const extractFlightsFromImage = async (
   image: File,
+  preferredTerminal: TerminalType,
   onProgress?: (progress: number) => void,
 ): Promise<OCRExtractionResult> => {
   try {
@@ -125,7 +126,7 @@ export const extractFlightsFromImage = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({imageUrl}),
+      body: JSON.stringify({imageUrl, preferredTerminal}),
     });
 
     if (!response.ok) {

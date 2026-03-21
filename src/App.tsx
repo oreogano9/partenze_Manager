@@ -154,7 +154,8 @@ export default function App() {
     showFocusOnly: false,
     showMockFlights: true
   });
-  const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T2'>('ALL');
+  const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>('ALL');
+  const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>('T1');
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -264,7 +265,12 @@ export default function App() {
     setState(prev => ({
       ...prev,
       flights: [...selectedFlights, ...prev.flights],
+      searchQuery: '',
+      showFocusOnly: false,
+      filterType: 'All',
+      showPast: true,
     }));
+    setTerminalFilter('ALL');
     closeOcrReview();
   };
 
@@ -280,7 +286,7 @@ export default function App() {
     closeOcrReview();
 
     try {
-      const result = await extractFlightsFromImage(file, progress => {
+      const result = await extractFlightsFromImage(file, scanTerminal, progress => {
         setOcrProgress(progress);
       });
 
@@ -413,6 +419,20 @@ export default function App() {
             {isExtracting ? `OCR ${Math.round(ocrProgress * 100)}%` : 'Scan Sheet'}
           </button>
 
+          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+            {(['T1', 'T3'] as const).map((term) => (
+              <button
+                key={term}
+                onClick={() => setScanTerminal(term)}
+                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                  scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                {term}
+              </button>
+            ))}
+          </div>
+
           <button 
             onClick={togglePast}
             className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
@@ -465,7 +485,7 @@ export default function App() {
           </div>
 
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {(['ALL', 'T1', 'T2'] as const).map((term) => (
+            {(['ALL', 'T1', 'T3'] as const).map((term) => (
               <button
                 key={term}
                 onClick={() => setTerminalFilter(term)}

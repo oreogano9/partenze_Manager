@@ -5,6 +5,7 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import {handleUpload} from '@vercel/blob/client';
 import {extractFlightsWithOpenAI} from './api/_openaiVision.js';
+import type {TerminalType} from './src/types';
 
 const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
 
@@ -66,13 +67,13 @@ export default defineConfig({
 
           try {
             const rawBody = await readBody(req);
-            const body = rawBody ? JSON.parse(rawBody) : {};
+            const body = rawBody ? (JSON.parse(rawBody) as {imageUrl?: string; preferredTerminal?: TerminalType}) : {};
             if (!body.imageUrl) {
               sendJson(res, 400, {error: 'Missing imageUrl'});
               return;
             }
 
-            const result = await extractFlightsWithOpenAI(body.imageUrl);
+            const result = await extractFlightsWithOpenAI(body.imageUrl, body.preferredTerminal);
             sendJson(res, 200, result);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Flight extraction failed';

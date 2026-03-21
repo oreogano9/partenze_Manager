@@ -1,5 +1,5 @@
 
-export type TerminalType = 'T1' | 'T2';
+export type TerminalType = 'T1' | 'T3';
 
 export type PositionType = 'Scivolo' | 'Nastro';
 
