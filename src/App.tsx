@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, OCRFlightCandidate } from './types';
+import { AppState, Flight, OCRFlightCandidate } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
@@ -12,14 +12,94 @@ import { motion, AnimatePresence } from 'motion/react';
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
+type MergeStatus = 'new' | 'update';
 
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onToggle: (id: string) => void;
   t: any;
+  mergeStatus: MergeStatus;
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t}) => {
+const getFlightMatchKey = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal'>) => {
+  const date = new Date(flight.std);
+  const localDay = Number.isNaN(date.getTime()) ? flight.std.slice(0, 10) : date.toLocaleDateString('sv-SE');
+  const time = Number.isNaN(date.getTime()) ? flight.std : formatHHmm(flight.std);
+  return [
+    flight.flightNumber.trim().toUpperCase(),
+    flight.destination.trim().toUpperCase(),
+    flight.terminal.trim().toUpperCase(),
+    localDay,
+    time,
+  ].join('|');
+};
+
+const pickPreferredValue = (current?: string, incoming?: string) => {
+  const currentValue = current?.trim() ?? '';
+  const incomingValue = incoming?.trim() ?? '';
+
+  if (!incomingValue) return currentValue;
+  if (!currentValue) return incomingValue;
+  if (incomingValue.length > currentValue.length) return incomingValue;
+  if (incomingValue.length === currentValue.length && incomingValue !== currentValue) return incomingValue;
+  return currentValue;
+};
+
+const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => ({
+  ...base,
+  position: pickPreferredValue(base.position, incoming.position) || base.position,
+  fc: pickPreferredValue(base.fc, incoming.fc) || undefined,
+  richiesta: pickPreferredValue(base.richiesta, incoming.richiesta) || undefined,
+  tot: pickPreferredValue(base.tot, incoming.tot) || undefined,
+});
+
+const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFlight[]) => {
+  const merged = [...existing];
+  const indexByKey = new Map(merged.map((flight, index) => [getFlightMatchKey(flight), index]));
+
+  incoming.forEach((flight) => {
+    const matchKey = getFlightMatchKey(flight);
+    const existingIndex = indexByKey.get(matchKey);
+
+    if (existingIndex === undefined) {
+      indexByKey.set(matchKey, merged.length);
+      merged.push(flight);
+      return;
+    }
+
+    const current = merged[existingIndex];
+    merged[existingIndex] = {
+      ...mergeFlightData(current, flight),
+      confidence: Math.max(current.confidence, flight.confidence),
+      sourceLine: pickPreferredValue(current.sourceLine, flight.sourceLine),
+      selected: current.selected,
+    };
+  });
+
+  return merged;
+};
+
+const mergeIntoBoardFlights = (existingFlights: Flight[], incomingFlights: OCRReviewFlight[]) => {
+  const mergedFlights = [...existingFlights];
+  const indexByKey = new Map(mergedFlights.map((flight, index) => [getFlightMatchKey(flight), index]));
+
+  incomingFlights.forEach((flight) => {
+    const matchKey = getFlightMatchKey(flight);
+    const existingIndex = indexByKey.get(matchKey);
+
+    if (existingIndex === undefined) {
+      indexByKey.set(matchKey, mergedFlights.length);
+      mergedFlights.push(flight);
+      return;
+    }
+
+    mergedFlights[existingIndex] = mergeFlightData(mergedFlights[existingIndex], flight);
+  });
+
+  return mergedFlights;
+};
+
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mergeStatus}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
@@ -61,6 +141,15 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t}) =>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                  mergeStatus === 'update'
+                    ? 'border border-blue-400/20 bg-blue-500/15 text-blue-200'
+                    : 'border border-emerald-400/20 bg-emerald-500/15 text-emerald-200'
+                }`}
+              >
+                {mergeStatus === 'update' ? t.updatesExisting : t.newFlight}
+              </span>
             </div>
 
             {(flight.fc || flight.richiesta || flight.tot) && !isExpanded && (
@@ -252,7 +341,7 @@ export default function App() {
 
     setState(prev => ({
       ...prev,
-      flights: [...selectedFlights, ...prev.flights],
+      flights: mergeIntoBoardFlights(prev.flights, selectedFlights),
       searchQuery: '',
       showFocusOnly: false,
       filterType: 'All',
@@ -295,7 +384,7 @@ export default function App() {
 
         return {
           text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
-          flights: [...prev.flights, ...nextFlights],
+          flights: mergeOcrFlightLists(prev.flights, nextFlights),
           previews: [...prev.previews, { previewUrl, fileName: file.name }],
         };
       });
@@ -358,6 +447,10 @@ export default function App() {
   }, [copyFeedback]);
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
+  const existingBoardFlightKeys = useMemo(
+    () => new Set(state.flights.map((flight) => getFlightMatchKey(flight))),
+    [state.flights],
+  );
   const visibleOcrFlights = ocrReview
     ? ocrReview.flights.filter((flight) => (
         ocrReviewTypeFilter === 'All' || getPositionType(flight.terminal, flight.position) === ocrReviewTypeFilter
@@ -869,7 +962,13 @@ export default function App() {
                         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
                           <div className="space-y-3">
                           {visibleOcrFlights.map((flight: OCRReviewFlight) => (
-                            <OCRPreviewCard key={flight.id} flight={flight} onToggle={toggleOcrCandidate} t={t} />
+                            <OCRPreviewCard
+                              key={flight.id}
+                              flight={flight}
+                              onToggle={toggleOcrCandidate}
+                              t={t}
+                              mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
+                            />
                           ))}
                           </div>
                         </div>
