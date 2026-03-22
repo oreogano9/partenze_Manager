@@ -79,15 +79,13 @@ export const formatFlightForClipboard = async (flight: Flight): Promise<string> 
   const startDate = new Date(endDate.getTime() - 40 * 60000);
   const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
   const positionLabel = flight.position.trim() || 'X';
-  const destinationName = await getIataCityName(flight.destination, 'en');
-  const containerDetails = [flight.fc, flight.richiesta, flight.tot].filter(Boolean).join(' | ');
-  const descriptionLines = [destinationName && `Description: ${destinationName}`, containerDetails && `Containers: ${containerDetails}`]
-    .filter(Boolean)
-    .join('\n');
+  const destinationName = await getIataCityName(flight.destination, 'it');
+  const containerDetails = [flight.richiesta, flight.tot].filter(Boolean).join(' | ');
+  const description = [destinationName, containerDetails].filter(Boolean).join(' ');
 
   return [
     `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,
-    descriptionLines,
+    description ? `Event Description: ${description}` : '',
   ].filter(Boolean).join('\n');
 };
 
