@@ -40,6 +40,24 @@ const parseContainerRequest = (request?: string) => {
   return { badges, notes, raw };
 };
 
+const getBadgeClasses = (value: string) => {
+  const token = value.toUpperCase();
+
+  if (token.includes('BL')) {
+    return 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200';
+  }
+
+  if (token.includes('BT')) {
+    return 'border-sky-400/20 bg-sky-500/10 text-sky-200';
+  }
+
+  if (token.includes('BS')) {
+    return 'border-rose-400/20 bg-rose-500/10 text-rose-200';
+  }
+
+  return 'border-amber-400/15 bg-amber-500/10 text-amber-200';
+};
+
 export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps> = ({
   flight,
   posType,
@@ -79,7 +97,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                     {uniqueBadges.map((badge) => (
                       <span
                         key={badge}
-                        className="rounded-lg border border-amber-400/15 bg-amber-500/10 px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide text-amber-200"
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide ${getBadgeClasses(badge)}`}
                       >
                         {badge}
                       </span>
@@ -90,9 +108,12 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
               {parsedRequest.notes.length > 0 && (
                 <div>
                   <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {parsedRequest.notes.map((note) => (
-                      <div key={note} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium text-white/80">
+                      <div
+                        key={note}
+                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80"
+                      >
                         {note}
                       </div>
                     ))}
