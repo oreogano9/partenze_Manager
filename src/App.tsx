@@ -863,20 +863,6 @@ export default function App() {
             capture="environment"
             className="hidden"
           />
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {(['T1', 'T3'] as const).map((term) => (
-              <button
-                key={term}
-                onClick={() => setScanTerminal(term)}
-                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                  scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
-                }`}
-              >
-                {term}
-              </button>
-            ))}
-          </div>
-
           <div className="relative" ref={shiftMenuRef}>
             <AnimatePresence>
               {showShiftMenu && (
@@ -1004,7 +990,7 @@ export default function App() {
                     : 'text-white/40 hover:text-white/60'
                 }`}
               >
-                {term}
+                {term === 'ALL' ? 'T1+T3' : term}
               </button>
             ))}
           </div>
