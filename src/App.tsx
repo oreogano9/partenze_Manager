@@ -957,8 +957,6 @@ export default function App() {
           </div>
         ) : (
           <>
-        {/* Controls */}
-        <div className="flex flex-wrap gap-2 mb-6">
           <input
             type="file"
             ref={fileInputRef}
@@ -974,155 +972,157 @@ export default function App() {
             capture="environment"
             className="hidden"
           />
-          <div className="relative" ref={shiftMenuRef}>
-            <AnimatePresence>
-              {showShiftMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute top-full left-0 mt-3 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#1a1a1a] p-3 shadow-2xl z-50"
+          {filteredFlights.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              <div className="relative" ref={shiftMenuRef}>
+                <AnimatePresence>
+                  {showShiftMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute top-full left-0 mt-3 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#1a1a1a] p-3 shadow-2xl z-50"
+                    >
+                      <div className="mb-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={shiftStart}
+                          onChange={(event) => {
+                            setShiftStart(event.target.value);
+                            setUseShiftFilter(true);
+                          }}
+                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                        >
+                          {SHIFT_TIME_OPTIONS.map((option) => (
+                            <option key={`start-${option}`} value={option}>{option}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={shiftEnd}
+                          onChange={(event) => {
+                            setShiftEnd(event.target.value);
+                            setUseShiftFilter(true);
+                          }}
+                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                        >
+                          {SHIFT_TIME_OPTIONS.map((option) => (
+                            <option key={`end-${option}`} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => setUseShiftFilter((prev) => !prev)}
+                          className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                            useShiftFilter
+                              ? 'bg-white/10 text-white hover:bg-white/15'
+                              : 'bg-emerald-500 text-black hover:bg-emerald-400'
+                          }`}
+                        >
+                          {useShiftFilter ? t.clearShift : t.enableShift}
+                        </button>
+                        <button
+                          onClick={() => setShowShiftMenu(false)}
+                          className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                        >
+                          {t.done}
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <button
+                  onClick={() => {
+                    setShowCalendarMenu(false);
+                    setShowScanMenu(false);
+                    setShowShiftMenu(prev => !prev);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                    useShiftFilter
+                      ? 'bg-emerald-500 text-black border-emerald-500'
+                      : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                  }`}
                 >
-                  <div className="mb-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={shiftStart}
-                      onChange={(event) => {
-                        setShiftStart(event.target.value);
-                        setUseShiftFilter(true);
-                      }}
-                      className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
-                    >
-                      {SHIFT_TIME_OPTIONS.map((option) => (
-                        <option key={`start-${option}`} value={option}>{option}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={shiftEnd}
-                      onChange={(event) => {
-                        setShiftEnd(event.target.value);
-                        setUseShiftFilter(true);
-                      }}
-                      className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
-                    >
-                      {SHIFT_TIME_OPTIONS.map((option) => (
-                        <option key={`end-${option}`} value={option}>{option}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setUseShiftFilter((prev) => !prev)}
-                      className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                        useShiftFilter
-                          ? 'bg-white/10 text-white hover:bg-white/15'
-                          : 'bg-emerald-500 text-black hover:bg-emerald-400'
-                      }`}
-                    >
-                      {useShiftFilter ? t.clearShift : t.enableShift}
-                    </button>
-                    <button
-                      onClick={() => setShowShiftMenu(false)}
-                      className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
-                    >
-                      {t.done}
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <button
-              onClick={() => {
-                setShowCalendarMenu(false);
-                setShowScanMenu(false);
-                setShowShiftMenu(prev => !prev);
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-                useShiftFilter
-                  ? 'bg-emerald-500 text-black border-emerald-500'
-                  : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-              }`}
-            >
-              <ClockIcon size={14} />
-              {useShiftFilter ? `${t.shift} ${shiftStart}-${shiftEnd}` : `${t.shift} ${t.shiftDisabled}`}
-            </button>
-          </div>
+                  <ClockIcon size={14} />
+                  {useShiftFilter ? `${t.shift} ${shiftStart}-${shiftEnd}` : `${t.shift} ${t.shiftDisabled}`}
+                </button>
+              </div>
 
-          <button 
-            onClick={togglePast}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-              state.showPast 
-                ? 'bg-white text-black border-white' 
-                : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-            }`}
-          >
-            <ClockIcon size={14} />
-            {state.showPast ? t.showPast : t.hidePast}
-          </button>
-
-          <button 
-            onClick={() => setState(prev => ({ ...prev, showFocusOnly: !prev.showFocusOnly }))}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-              state.showFocusOnly 
-                ? 'bg-amber-500 text-black border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
-                : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-            }`}
-          >
-            <div className={`w-2 h-2 rounded-full ${state.showFocusOnly ? 'bg-black animate-pulse' : 'bg-amber-500'}`} />
-            {t.focusLabel}
-          </button>
-
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
-              <button
-                key={type}
-                onClick={() => setState(prev => ({ ...prev, filterType: type }))}
-                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                  state.filterType === type 
-                    ? 'bg-emerald-500 text-black' 
-                    : 'text-white/40 hover:text-white/60'
+              <button 
+                onClick={togglePast}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                  state.showPast 
+                    ? 'bg-white text-black border-white' 
+                    : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
                 }`}
               >
-                {type === 'All' ? t.all : type.toUpperCase()}
+                <ClockIcon size={14} />
+                {state.showPast ? t.showPast : t.hidePast}
               </button>
-            ))}
-          </div>
 
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {(['ALL', 'T1', 'T3'] as const).map((term) => (
-              <button
-                key={term}
-                onClick={() => setTerminalFilter(term)}
-                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                  terminalFilter === term 
-                    ? 'bg-blue-500 text-white' 
-                    : 'text-white/40 hover:text-white/60'
+              <button 
+                onClick={() => setState(prev => ({ ...prev, showFocusOnly: !prev.showFocusOnly }))}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                  state.showFocusOnly 
+                    ? 'bg-amber-500 text-black border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
+                    : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
                 }`}
               >
-                {term === 'ALL' ? 'T1+T3' : term}
+                <div className={`w-2 h-2 rounded-full ${state.showFocusOnly ? 'bg-black animate-pulse' : 'bg-amber-500'}`} />
+                {t.focusLabel}
               </button>
-            ))}
-          </div>
 
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-            {([5, 10] as const).map((threshold) => (
-              <button
-                key={threshold}
-                onClick={() => setConnectionThreshold(threshold)}
-                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                  connectionThreshold === threshold 
-                    ? 'bg-indigo-500 text-white' 
-                    : 'text-white/40 hover:text-white/60'
-                }`}
-              >
-                {threshold}M
-              </button>
-            ))}
-          </div>
-          
-        </div>
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setState(prev => ({ ...prev, filterType: type }))}
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                      state.filterType === type 
+                        ? 'bg-emerald-500 text-black' 
+                        : 'text-white/40 hover:text-white/60'
+                    }`}
+                  >
+                    {type === 'All' ? t.all : type.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                {(['ALL', 'T1', 'T3'] as const).map((term) => (
+                  <button
+                    key={term}
+                    onClick={() => setTerminalFilter(term)}
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                      terminalFilter === term 
+                        ? 'bg-blue-500 text-white' 
+                        : 'text-white/40 hover:text-white/60'
+                    }`}
+                  >
+                    {term === 'ALL' ? 'T1+T3' : term}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                {([5, 10] as const).map((threshold) => (
+                  <button
+                    key={threshold}
+                    onClick={() => setConnectionThreshold(threshold)}
+                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                      connectionThreshold === threshold 
+                        ? 'bg-indigo-500 text-white' 
+                        : 'text-white/40 hover:text-white/60'
+                    }`}
+                  >
+                    {threshold}M
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
         {ocrError && (
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
