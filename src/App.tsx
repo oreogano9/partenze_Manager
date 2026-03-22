@@ -114,6 +114,17 @@ const SHIFT_TIME_OPTIONS = Array.from({length: 48}, (_, index) => {
   return `${hours}:${minutes}`;
 });
 
+const roundToNearestHalfHour = (date: Date) => {
+  const rounded = new Date(date);
+  const minutes = rounded.getMinutes();
+  const snappedMinutes = minutes <= 15 ? 0 : minutes <= 45 ? 30 : 60;
+  rounded.setMinutes(snappedMinutes, 0, 0);
+  return rounded;
+};
+
+const formatTimeOption = (date: Date) =>
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
 const resolveShiftEnd = (start: string, end: string) => {
   const now = new Date();
   const [startHours, startMinutes] = start.split(':').map(Number);
@@ -244,6 +255,11 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mer
 };
 
 export default function App() {
+  const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
+  const defaultShiftEndDate = new Date();
+  defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);
+  const defaultShiftEnd = formatTimeOption(defaultShiftEndDate);
+
   const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
   const [state, setState] = useState<AppState>({
     flights: MOCK_FLIGHTS,
@@ -256,8 +272,8 @@ export default function App() {
   });
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>('ALL');
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>('T1');
-  const [shiftStart, setShiftStart] = useState('06:00');
-  const [shiftEnd, setShiftEnd] = useState('14:00');
+  const [shiftStart, setShiftStart] = useState(defaultShiftStart);
+  const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
   const [useShiftFilter, setUseShiftFilter] = useState(false);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
@@ -707,9 +723,7 @@ export default function App() {
               className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
             >
               {SHIFT_TIME_OPTIONS.map((option) => (
-                <option key={`start-${option}`} value={option}>
-                  {t.shiftStart} {option}
-                </option>
+                <option key={`start-${option}`} value={option}>{option}</option>
               ))}
             </select>
             <select
@@ -721,9 +735,7 @@ export default function App() {
               className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
             >
               {SHIFT_TIME_OPTIONS.map((option) => (
-                <option key={`end-${option}`} value={option}>
-                  {t.shiftEnd} {option}
-                </option>
+                <option key={`end-${option}`} value={option}>{option}</option>
               ))}
             </select>
             <button
@@ -870,9 +882,7 @@ export default function App() {
                           className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
                         >
                           {SHIFT_TIME_OPTIONS.map((option) => (
-                            <option key={`empty-start-${option}`} value={option}>
-                              {t.shiftStart} {option}
-                            </option>
+                            <option key={`empty-start-${option}`} value={option}>{option}</option>
                           ))}
                         </select>
                         <select
@@ -884,9 +894,7 @@ export default function App() {
                           className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
                         >
                           {SHIFT_TIME_OPTIONS.map((option) => (
-                            <option key={`empty-end-${option}`} value={option}>
-                              {t.shiftEnd} {option}
-                            </option>
+                            <option key={`empty-end-${option}`} value={option}>{option}</option>
                           ))}
                         </select>
                       </div>
