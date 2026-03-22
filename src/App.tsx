@@ -277,6 +277,7 @@ export default function App() {
   const [useShiftFilter, setUseShiftFilter] = useState(false);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
+  const [showScanMenu, setShowScanMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
@@ -286,6 +287,7 @@ export default function App() {
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
+  const scanMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
@@ -491,6 +493,9 @@ export default function App() {
     const handleClickOutside = (event: MouseEvent) => {
       if (calendarMenuRef.current && !calendarMenuRef.current.contains(event.target as Node)) {
         setShowCalendarMenu(false);
+      }
+      if (scanMenuRef.current && !scanMenuRef.current.contains(event.target as Node)) {
+        setShowScanMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -975,48 +980,81 @@ export default function App() {
           <div className="flex justify-end pointer-events-auto">
             <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex gap-2 shadow-2xl">
               {currentView !== 'settings' && (
-                <>
-                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 items-center">
-                    {(['T1', 'T3'] as const).map((term) => (
-                      <button
-                        key={term}
-                        onClick={() => setScanTerminal(term)}
-                        className={`px-3 py-2 rounded-lg text-[10px] font-bold transition-all ${
-                          scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
-                        }`}
-                        aria-label={`${t.scanTerminalLabel}: ${term}`}
+                <div className="relative" ref={scanMenuRef}>
+                  <AnimatePresence>
+                    {showScanMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute bottom-full right-0 mb-4 w-64 bg-[#1a1a1a] border border-white/10 rounded-2xl p-2 shadow-2xl z-[110]"
                       >
-                        {term}
-                      </button>
-                    ))}
-                  </div>
+                        <div className="px-3 py-2 border-b border-white/5 mb-2">
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                            {t.scanTerminalLabel}
+                          </p>
+                        </div>
+                        <div className="mb-2 flex bg-white/5 p-1 rounded-xl border border-white/10 items-center">
+                          {(['T1', 'T3'] as const).map((term) => (
+                            <button
+                              key={term}
+                              onClick={() => setScanTerminal(term)}
+                              className={`flex-1 px-3 py-2 rounded-lg text-[10px] font-bold transition-all ${
+                                scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
+                              }`}
+                              aria-label={`${t.scanTerminalLabel}: ${term}`}
+                            >
+                              {term}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowScanMenu(false);
+                            cameraInputRef.current?.click();
+                          }}
+                          disabled={isExtracting}
+                          className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left disabled:opacity-70"
+                        >
+                          {isExtracting ? <Loader2 size={16} className="animate-spin text-emerald-300" /> : <Camera size={16} className="text-emerald-400" />}
+                          <div className="flex flex-col">
+                            <span className="font-bold">{t.cameraMode}</span>
+                            <span className="text-[10px] text-white/40">{scanTerminal}</span>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowScanMenu(false);
+                            fileInputRef.current?.click();
+                          }}
+                          disabled={isExtracting}
+                          className="w-full flex items-center gap-3 p-3 text-sm text-white/80 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left disabled:opacity-70"
+                        >
+                          <Plus size={16} className="text-white/60" />
+                          <div className="flex flex-col">
+                            <span className="font-bold">{t.importPhoto}</span>
+                            <span className="text-[10px] text-white/40">{scanTerminal}</span>
+                          </div>
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   <button
-                    onClick={() => cameraInputRef.current?.click()}
+                    onClick={() => {
+                      setShowCalendarMenu(false);
+                      setShowScanMenu(prev => !prev);
+                    }}
                     disabled={isExtracting}
-                    className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
-                      isExtracting
-                        ? 'bg-emerald-500/15 text-emerald-300'
+                    className={`p-3 rounded-xl transition-all ${
+                      showScanMenu || isExtracting
+                        ? 'bg-white/10 text-white'
                         : 'text-white/60 hover:text-white hover:bg-white/5'
                     } disabled:opacity-70`}
                     aria-label={t.cameraMode}
                   >
-                    {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                    <span className="text-[10px] font-bold uppercase tracking-widest">
-                      {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : `${t.cameraMode} ${scanTerminal}`}
-                    </span>
+                    {isExtracting ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
                   </button>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isExtracting}
-                    className="px-3 rounded-xl transition-all flex items-center gap-2 text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-70"
-                    aria-label={t.importPhoto}
-                  >
-                    <Plus size={18} />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">
-                      {t.importPhoto}
-                    </span>
-                  </button>
-                </>
+                </div>
               )}
               <div className="relative" ref={calendarMenuRef}>
                 <AnimatePresence>
@@ -1063,7 +1101,10 @@ export default function App() {
                   )}
                 </AnimatePresence>
                 <button 
-                  onClick={() => setShowCalendarMenu(!showCalendarMenu)}
+                  onClick={() => {
+                    setShowScanMenu(false);
+                    setShowCalendarMenu(!showCalendarMenu);
+                  }}
                   className={`p-3 rounded-xl transition-all ${showCalendarMenu ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
                 >
                   <CalendarIcon size={20} />
