@@ -273,7 +273,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   const posType = getPositionType(flight.terminal, flight.position);
   
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
-  const isFocused = minutesToSTD >= 30 && minutesToSTD <= 90;
+  const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
   const urgencyColor = propUrgencyColor || getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
   const [destinationName, setDestinationName] = useState(() => getCommonIataCityName(flight.destination, language));

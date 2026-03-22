@@ -399,7 +399,7 @@ export default function App() {
           f.position.toLowerCase().includes(query);
 
         const minutesToSTD = Math.floor((new Date(f.std).getTime() - Date.now()) / 60000);
-        const isFocused = minutesToSTD >= 30 && minutesToSTD <= 90;
+        const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
         const matchesFocus = !state.showFocusOnly || isFocused;
         const shiftEndDate = resolveShiftEnd(shiftStart, shiftEnd);
         const shiftLowerBound = new Date(Date.now() + 30 * 60000);
@@ -960,7 +960,7 @@ export default function App() {
             }`}
           >
             <div className={`w-2 h-2 rounded-full ${state.showFocusOnly ? 'bg-black animate-pulse' : 'bg-amber-500'}`} />
-            {t.focusLabel} (30-90m)
+            {t.focusLabel}
           </button>
 
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
@@ -1116,10 +1116,10 @@ export default function App() {
               const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
               const urgencyColor = getUrgencyColor(minutesToSTD);
 
-              // Calculate focus index (1, 2, 3...) for flights in the 30-90m window
+              // Calculate focus index (1, 2, 3...) for flights in the 15-90m window
               const focusedFlights = filteredFlights.filter(f => {
                 const m = Math.floor((new Date(f.std).getTime() - Date.now()) / 60000);
-                return m >= 30 && m <= 90;
+                return m >= 15 && m <= 90;
               });
               const focusIndex = focusedFlights.findIndex(f => f.id === flight.id) + 1;
 
