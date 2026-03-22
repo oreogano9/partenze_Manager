@@ -13,6 +13,15 @@ type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
 type MergeStatus = 'new' | 'update';
+type PersistedState = {
+  appState: AppState;
+  terminalFilter: 'ALL' | 'T1' | 'T3';
+  scanTerminal: 'T1' | 'T3';
+  shiftStart: string;
+  shiftEnd: string;
+  useShiftFilter: boolean;
+  connectionThreshold: 5 | 10;
+};
 
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
@@ -125,6 +134,17 @@ const roundToNearestHalfHour = (date: Date) => {
 const formatTimeOption = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
+const PERSISTED_STATE_KEY = 'partenze-manager-state';
+const DEFAULT_APP_STATE: AppState = {
+  flights: MOCK_FLIGHTS,
+  language: 'it',
+  showPast: false,
+  filterType: 'All',
+  searchQuery: '',
+  showFocusOnly: false,
+  showMockFlights: false,
+};
+
 const resolveShiftEnd = (start: string, end: string) => {
   const now = new Date();
   const [startHours, startMinutes] = start.split(':').map(Number);
@@ -139,6 +159,47 @@ const resolveShiftEnd = (start: string, end: string) => {
   }
 
   return shiftEnd;
+};
+
+const loadPersistedState = (defaultShiftStart: string, defaultShiftEnd: string): PersistedState => {
+  const fallback: PersistedState = {
+    appState: DEFAULT_APP_STATE,
+    terminalFilter: 'ALL',
+    scanTerminal: 'T1',
+    shiftStart: defaultShiftStart,
+    shiftEnd: defaultShiftEnd,
+    useShiftFilter: false,
+    connectionThreshold: 10,
+  };
+
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    return {
+      appState: {
+        ...DEFAULT_APP_STATE,
+        ...parsed.appState,
+        flights: parsed.appState?.flights ?? DEFAULT_APP_STATE.flights,
+      },
+      terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
+      scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
+      shiftStart: typeof parsed.shiftStart === 'string' ? parsed.shiftStart : defaultShiftStart,
+      shiftEnd: typeof parsed.shiftEnd === 'string' ? parsed.shiftEnd : defaultShiftEnd,
+      useShiftFilter: Boolean(parsed.useShiftFilter),
+      connectionThreshold: parsed.connectionThreshold === 5 ? 5 : 10,
+    };
+  } catch (error) {
+    console.error('Failed to load persisted state', error);
+    return fallback;
+  }
 };
 
 const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mergeStatus}) => {
@@ -259,23 +320,16 @@ export default function App() {
   const defaultShiftEndDate = new Date();
   defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);
   const defaultShiftEnd = formatTimeOption(defaultShiftEndDate);
+  const persistedState = loadPersistedState(defaultShiftStart, defaultShiftEnd);
 
   const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
-  const [state, setState] = useState<AppState>({
-    flights: MOCK_FLIGHTS,
-    language: 'it',
-    showPast: false,
-    filterType: 'All',
-    searchQuery: '',
-    showFocusOnly: false,
-    showMockFlights: false
-  });
-  const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>('ALL');
-  const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>('T1');
-  const [shiftStart, setShiftStart] = useState(defaultShiftStart);
-  const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
-  const [useShiftFilter, setUseShiftFilter] = useState(false);
-  const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
+  const [state, setState] = useState<AppState>(persistedState.appState);
+  const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
+  const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
+  const [shiftStart, setShiftStart] = useState(persistedState.shiftStart);
+  const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
+  const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
+  const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -342,6 +396,36 @@ export default function App() {
 
   const togglePast = () => {
     setState(prev => ({ ...prev, showPast: !prev.showPast }));
+  };
+
+  const clearLocalData = () => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        state.language === 'it'
+          ? 'Vuoi davvero cancellare tutti i dati salvati localmente? I dati demo resteranno disponibili.'
+          : 'Do you want to delete all locally saved data? Dummy data will remain available.'
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      window.localStorage.removeItem(PERSISTED_STATE_KEY);
+    }
+
+    setState(DEFAULT_APP_STATE);
+    setTerminalFilter('ALL');
+    setScanTerminal('T1');
+    setShiftStart(defaultShiftStart);
+    setShiftEnd(defaultShiftEnd);
+    setUseShiftFilter(false);
+    setConnectionThreshold(10);
+    setShowCalendarMenu(false);
+    setShowScanMenu(false);
+    setCurrentView('board');
+    setCopyFeedback(null);
+    setOcrError(null);
+    closeOcrReview();
   };
 
   const closeOcrReview = () => {
@@ -520,6 +604,24 @@ export default function App() {
   }, [copyFeedback]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const snapshot: PersistedState = {
+      appState: state,
+      terminalFilter,
+      scanTerminal,
+      shiftStart,
+      shiftEnd,
+      useShiftFilter,
+      connectionThreshold,
+    };
+
+    window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
+  }, [state, terminalFilter, scanTerminal, shiftStart, shiftEnd, useShiftFilter, connectionThreshold]);
+
+  useEffect(() => {
     if (!isExtracting) {
       setScanLoadingIndex(0);
       return;
@@ -580,10 +682,10 @@ export default function App() {
             {currentView === 'settings' ? (
               <button
                 onClick={() => setCurrentView('board')}
-                className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                aria-label={t.backToBoard}
               >
                 <ArrowLeft size={14} />
-                {t.backToBoard}
               </button>
             ) : (
               <button
@@ -680,6 +782,20 @@ export default function App() {
                   >
                     {state.showMockFlights ? 'ON' : 'OFF'}
                   </button>
+                </div>
+                <div className="mt-4 border-t border-white/5 pt-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-bold text-white">{t.clearLocalData}</p>
+                      <p className="text-xs text-white/45">{t.clearLocalDataDescription}</p>
+                    </div>
+                    <button
+                      onClick={clearLocalData}
+                      className="rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-200 transition-all hover:bg-rose-500/20"
+                    >
+                      {t.clearLocalDataAction}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
