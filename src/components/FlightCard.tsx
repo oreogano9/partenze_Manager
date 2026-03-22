@@ -16,6 +16,32 @@ interface FlightCardExpandedContentProps {
   actionsContent?: React.ReactNode;
 }
 
+const parseContainerRequest = (request?: string) => {
+  const raw = request?.trim() ?? '';
+  if (!raw) {
+    return { badges: [] as string[], notes: [] as string[], raw: '' };
+  }
+
+  const notes = Array.from(raw.matchAll(/\(([^)]+)\)/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+
+  const stripped = raw.replace(/\([^)]*\)/g, ' ');
+  const normalized = stripped.replace(/[+]/g, '-');
+  const pieces = normalized
+    .split('-')
+    .flatMap((piece) => piece.split('/'))
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+
+  const badges = pieces
+    .flatMap((piece) => piece.split(/\s+/))
+    .map((token) => token.trim().toUpperCase())
+    .filter(Boolean);
+
+  return { badges, notes, raw };
+};
+
 export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps> = ({
   flight,
   posType,
@@ -24,47 +50,97 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   tagsContent,
   actionsContent,
 }) => (
-  <>
-    <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <MapPin size={12} className="text-white/30" />
-        <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
-      </div>
-      <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{flight.terminal}</div>
-    </div>
-    {(flight.fc || flight.richiesta || flight.tot) && (
-      <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{t.baggageDetails}</span>
+  (() => {
+    const parsedRequest = parseContainerRequest(flight.richiesta);
+    const requestBadges = [...(flight.fc ? [flight.fc.toUpperCase()] : []), ...parsedRequest.badges];
+    const uniqueBadges = Array.from(new Set(requestBadges));
+    const hasOpsDetails = uniqueBadges.length > 0 || parsedRequest.notes.length > 0 || flight.tot || flight.anomaly || flight.bag;
+
+    return (
+      <>
+        <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin size={12} className="text-white/30" />
+            <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
+          </div>
+          <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{flight.terminal}</div>
         </div>
-        <div className="flex flex-col gap-2">
-          {(flight.fc || flight.richiesta) && (
-            <div className="flex items-start gap-2">
-              <span className="text-[10px] text-white/30 font-bold w-10 shrink-0 mt-0.5">REQ</span>
-              <div className="flex flex-wrap items-center gap-x-2">
-                {flight.fc && <span className="text-xs text-amber-500 font-black tracking-wider">{flight.fc}</span>}
-                {flight.richiesta && <span className="text-xs text-white/90 font-medium leading-relaxed italic">{flight.richiesta}</span>}
-              </div>
+        {hasOpsDetails && (
+          <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{t.baggageDetails}</span>
+              {flight.tot && (
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-emerald-200">
+                  TOT {flight.tot}
+                </span>
+              )}
             </div>
-          )}
-          {flight.tot && (
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-white/30 font-bold w-10 shrink-0">NUM</span>
-              <span className="text-xs text-white/90 font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">{flight.tot}</span>
+            <div className="flex flex-col gap-3">
+              {uniqueBadges.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.containersNeeded}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {uniqueBadges.map((badge) => (
+                      <span
+                        key={badge}
+                        className="rounded-lg border border-amber-400/15 bg-amber-500/10 px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide text-amber-200"
+                      >
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {parsedRequest.notes.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.specialNotes}</div>
+                  <div className="flex flex-col gap-1.5">
+                    {parsedRequest.notes.map((note) => (
+                      <div key={note} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium text-white/80">
+                        {note}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(flight.anomaly || flight.bag) && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {flight.anomaly && (
+                    <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.anomaly}</div>
+                      <div className="text-xs text-white/80">{flight.anomaly}</div>
+                    </div>
+                  )}
+                  {flight.bag && (
+                    <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.bag}</div>
+                      <div className="text-xs text-white/80">{flight.bag}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {parsedRequest.raw && uniqueBadges.length === 0 && parsedRequest.notes.length === 0 && (
+                <div>
+                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.rawRequest}</div>
+                  <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-mono text-white/80">
+                    {parsedRequest.raw}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-    )}
-    {typeof confidence === 'number' && (
-      <div className="px-4 py-3 border-b border-white/5 text-xs text-white/65 flex items-center justify-between">
-        <span className="uppercase tracking-[0.2em] text-white/35">{t.confidence}</span>
-        <span className="font-black text-emerald-300">{Math.round(confidence * 100)}%</span>
-      </div>
-    )}
-    {tagsContent}
-    {actionsContent}
-  </>
+          </div>
+        )}
+        {typeof confidence === 'number' && (
+          <div className="px-4 py-3 border-b border-white/5 text-xs text-white/65 flex items-center justify-between">
+            <span className="uppercase tracking-[0.2em] text-white/35">{t.confidence}</span>
+            <span className="font-black text-emerald-300">{Math.round(confidence * 100)}%</span>
+          </div>
+        )}
+        {tagsContent}
+        {actionsContent}
+      </>
+    );
+  })()
 );
 
 interface FlightCardProps {
