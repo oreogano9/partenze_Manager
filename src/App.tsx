@@ -26,9 +26,37 @@ type PersistedState = {
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onToggle: (id: string) => void;
+  onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
   t: any;
   language: 'it' | 'en';
   mergeStatus: MergeStatus;
+};
+
+const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
+const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>) =>
+  Boolean(
+    flight.flightNumber.trim() &&
+    flight.destination.trim() &&
+    flight.position.trim() &&
+    (flight.terminal === 'T1' || flight.terminal === 'T3') &&
+    isValidOcrStd(flight.std)
+  );
+
+const updateStdTime = (existingStd: string, hhmm: string) => {
+  const [hours, minutes] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return existingStd;
+  }
+
+  const nextDate = new Date(existingStd);
+  if (Number.isNaN(nextDate.getTime())) {
+    const fallback = new Date();
+    fallback.setHours(hours, minutes, 0, 0);
+    return fallback.toISOString();
+  }
+
+  nextDate.setHours(hours, minutes, 0, 0);
+  return nextDate.toISOString();
 };
 
 const getFlightMatchKey = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal'>) => {
@@ -230,13 +258,14 @@ const loadPersistedState = (): PersistedState => {
   }
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, language, mergeStatus}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeStatus}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
   const urgencyColor = getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
   const posType = getPositionType(flight.terminal, flight.position);
+  const isComplete = isOcrFlightComplete(flight);
 
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = 'text-white/40';
@@ -272,6 +301,11 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, lan
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
+              {!isComplete && (
+                <span className="rounded-full border border-amber-400/20 bg-amber-500/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-100">
+                  {t.requiredFieldsMissing}
+                </span>
+              )}
               {flight.crossedOut && (
                 <span className="rounded-full border border-rose-400/20 bg-rose-500/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-200">
                   {t.crossedOut}
@@ -337,6 +371,51 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, lan
               language={language}
               confidence={flight.confidence}
             />
+            <div className="border-t border-white/5 bg-white/[0.02] p-4">
+              <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                {t.requiredFields}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={flight.flightNumber}
+                  onChange={(event) => onFieldChange(flight.id, 'flightNumber', event.target.value.toUpperCase())}
+                  placeholder={t.flightNumberLabel}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                />
+                <input
+                  value={flight.destination}
+                  onChange={(event) => onFieldChange(flight.id, 'destination', event.target.value.toUpperCase())}
+                  placeholder={t.destinationLabel}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white uppercase outline-none"
+                />
+                <input
+                  value={formatHHmm(flight.std)}
+                  onChange={(event) => onFieldChange(flight.id, 'std', event.target.value)}
+                  placeholder="HH:mm"
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                />
+                <input
+                  value={flight.position}
+                  onChange={(event) => onFieldChange(flight.id, 'position', event.target.value.toUpperCase())}
+                  placeholder={t.positionLabel}
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white uppercase outline-none"
+                />
+                <div className="sm:col-span-2 flex rounded-xl border border-white/10 bg-black/20 p-1">
+                  {(['T1', 'T3'] as const).map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => onFieldChange(flight.id, 'terminal', term)}
+                      className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+                        flight.terminal === term ? 'bg-emerald-500 text-black' : 'text-white/50 hover:text-white'
+                      }`}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -483,6 +562,33 @@ export default function App() {
     });
   };
 
+  const updateOcrCandidateField = (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => {
+    setOcrReview(prev => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        flights: prev.flights.map((flight) => {
+          if (flight.id !== id) {
+            return flight;
+          }
+
+          if (field === 'std') {
+            return { ...flight, std: updateStdTime(flight.std, value) };
+          }
+
+          if (field === 'terminal') {
+            return { ...flight, terminal: value === 'T3' ? 'T3' : 'T1' };
+          }
+
+          return { ...flight, [field]: value };
+        }),
+      };
+    });
+  };
+
   const toggleAllOcrCandidates = (selected: boolean) => {
     setOcrReview(prev => {
       if (!prev) {
@@ -521,6 +627,10 @@ export default function App() {
       .filter(flight => flight.selected)
       .map((flight) => ({ ...flight, importedAt }));
     if (selectedFlights.length === 0) {
+      return;
+    }
+    if (selectedFlights.some((flight) => !isOcrFlightComplete(flight))) {
+      setOcrError(t.completeRequiredFieldsHint);
       return;
     }
 
@@ -676,6 +786,7 @@ export default function App() {
   }, [isExtracting]);
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
+  const hasInvalidSelectedOcrFlights = ocrReview ? ocrReview.flights.some(flight => flight.selected && !isOcrFlightComplete(flight)) : false;
   const existingBoardFlightKeys = useMemo(
     () => new Set(state.flights.map((flight) => getFlightMatchKey(flight))),
     [state.flights],
@@ -1467,6 +1578,7 @@ export default function App() {
                               key={flight.id}
                               flight={flight}
                               onToggle={toggleOcrCandidate}
+                              onFieldChange={updateOcrCandidateField}
                               t={t}
                               language={state.language}
                               mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
@@ -1545,6 +1657,7 @@ export default function App() {
                                   key={flight.id}
                                   flight={flight}
                                   onToggle={toggleOcrCandidate}
+                                  onFieldChange={updateOcrCandidateField}
                                   t={t}
                                   language={state.language}
                                   mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
@@ -1606,7 +1719,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={handleImportFlights}
-                      disabled={selectedOcrCount === 0}
+                      disabled={selectedOcrCount === 0 || hasInvalidSelectedOcrFlights}
                       className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                     >
                       <span className="inline-flex items-center gap-2">

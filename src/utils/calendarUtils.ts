@@ -37,8 +37,8 @@ const isTomorrow = (date: Date) => {
 
 export const generateICS = async (flights: Flight[]): Promise<string> => {
   const events = await Promise.all(flights.map(async (f) => {
-    const startDate = new Date(f.std);
-    const endDate = new Date(startDate.getTime() + 60 * 60000); // Assume 1 hour duration
+    const endDate = new Date(f.std);
+    const startDate = new Date(endDate.getTime() - 40 * 60000);
     const positionLabel = f.position.trim() || 'X';
     const destinationName = await getIataCityName(f.destination, 'it');
     const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
@@ -54,7 +54,6 @@ DTSTART:${formatDate(startDate)}
 DTEND:${formatDate(endDate)}
 SUMMARY:${positionLabel} - ${f.destination} - ${f.flightNumber}
 DESCRIPTION:${[destinationName, containerDetails].filter(Boolean).join('\\n')}
-LOCATION:${f.terminal} - ${f.position}
 END:VEVENT`;
   }));
 
