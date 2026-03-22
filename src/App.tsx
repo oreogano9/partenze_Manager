@@ -108,6 +108,28 @@ const SCAN_LOADING_MESSAGES = [
   'Preparo l\'importazione...',
 ] as const;
 
+const SHIFT_TIME_OPTIONS = Array.from({length: 48}, (_, index) => {
+  const hours = String(Math.floor(index / 2)).padStart(2, '0');
+  const minutes = index % 2 === 0 ? '00' : '30';
+  return `${hours}:${minutes}`;
+});
+
+const resolveShiftEnd = (start: string, end: string) => {
+  const now = new Date();
+  const [startHours, startMinutes] = start.split(':').map(Number);
+  const [endHours, endMinutes] = end.split(':').map(Number);
+  const shiftStart = new Date(now);
+  shiftStart.setHours(startHours, startMinutes, 0, 0);
+  const shiftEnd = new Date(now);
+  shiftEnd.setHours(endHours, endMinutes, 0, 0);
+
+  if (shiftEnd.getTime() <= shiftStart.getTime()) {
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+  }
+
+  return shiftEnd;
+};
+
 const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mergeStatus}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
@@ -234,6 +256,9 @@ export default function App() {
   });
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>('ALL');
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>('T1');
+  const [shiftStart, setShiftStart] = useState('06:00');
+  const [shiftEnd, setShiftEnd] = useState('14:00');
+  const [useShiftFilter, setUseShiftFilter] = useState(false);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(10);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -246,6 +271,7 @@ export default function App() {
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
 
   const t = TRANSLATIONS[state.language];
@@ -272,11 +298,16 @@ export default function App() {
         const minutesToSTD = Math.floor((new Date(f.std).getTime() - Date.now()) / 60000);
         const isFocused = minutesToSTD >= 30 && minutesToSTD <= 90;
         const matchesFocus = !state.showFocusOnly || isFocused;
+        const shiftEndDate = resolveShiftEnd(shiftStart, shiftEnd);
+        const shiftLowerBound = new Date(Date.now() + 30 * 60000);
+        const shiftUpperBound = new Date(shiftEndDate.getTime() + 60 * 60000);
+        const flightTime = new Date(f.std);
+        const matchesShift = !useShiftFilter || (flightTime >= shiftLowerBound && flightTime <= shiftUpperBound);
 
-        return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus;
+        return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus && matchesShift;
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [state.flights, state.showPast, state.filterType, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter]);
+  }, [state.flights, state.showPast, state.filterType, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter]);
 
   const handleTagToggle = (id: string, tag: string) => {
     setState(prev => ({
@@ -415,6 +446,9 @@ export default function App() {
       setOcrProgress(0);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+      if (cameraInputRef.current) {
+        cameraInputRef.current.value = '';
       }
     }
   };
@@ -638,6 +672,13 @@ export default function App() {
             ref={fileInputRef}
             onChange={handleFileUpload}
             accept="image/*"
+            className="hidden"
+          />
+          <input
+            type="file"
+            ref={cameraInputRef}
+            onChange={handleFileUpload}
+            accept="image/*"
             capture="environment"
             className="hidden"
           />
@@ -653,6 +694,56 @@ export default function App() {
                 {term}
               </button>
             ))}
+          </div>
+
+          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</span>
+            <select
+              value={shiftStart}
+              onChange={(event) => {
+                setShiftStart(event.target.value);
+                setUseShiftFilter(true);
+              }}
+              className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
+            >
+              {SHIFT_TIME_OPTIONS.map((option) => (
+                <option key={`start-${option}`} value={option}>
+                  {t.shiftStart} {option}
+                </option>
+              ))}
+            </select>
+            <select
+              value={shiftEnd}
+              onChange={(event) => {
+                setShiftEnd(event.target.value);
+                setUseShiftFilter(true);
+              }}
+              className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
+            >
+              {SHIFT_TIME_OPTIONS.map((option) => (
+                <option key={`end-${option}`} value={option}>
+                  {t.shiftEnd} {option}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setUseShiftFilter((prev) => !prev)}
+              className={`rounded-lg px-3 py-1 text-xs font-bold transition-all ${
+                useShiftFilter
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              {useShiftFilter ? `${shiftStart}-${shiftEnd}` : t.shift}
+            </button>
+            {useShiftFilter && (
+              <button
+                onClick={() => setUseShiftFilter(false)}
+                className="rounded-lg px-2 py-1 text-xs font-bold text-white/40 transition-all hover:bg-white/5 hover:text-white"
+              >
+                {t.clearShift}
+              </button>
+            )}
           </div>
 
           <button 
@@ -753,28 +844,73 @@ export default function App() {
                 <p className="text-xl font-black text-white">{t.noFlightsScheduled}</p>
                 <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.emptyStateHint}</p>
                 <div className="mt-6">
-                  <div className="mx-auto inline-flex bg-white/5 p-1 rounded-full border border-white/10">
-                    {(['T1', 'T3'] as const).map((term) => (
-                      <button
-                        key={term}
-                        onClick={() => setScanTerminal(term)}
-                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                          scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
-                        }`}
-                      >
-                        {term}
-                      </button>
-                    ))}
+                  <div className="mx-auto flex max-w-sm flex-col gap-3">
+                    <div className="inline-flex justify-center bg-white/5 p-1 rounded-full border border-white/10">
+                      {(['T1', 'T3'] as const).map((term) => (
+                        <button
+                          key={term}
+                          onClick={() => setScanTerminal(term)}
+                          className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                            scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
+                          }`}
+                        >
+                          {term}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={shiftStart}
+                          onChange={(event) => {
+                            setShiftStart(event.target.value);
+                            setUseShiftFilter(true);
+                          }}
+                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                        >
+                          {SHIFT_TIME_OPTIONS.map((option) => (
+                            <option key={`empty-start-${option}`} value={option}>
+                              {t.shiftStart} {option}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={shiftEnd}
+                          onChange={(event) => {
+                            setShiftEnd(event.target.value);
+                            setUseShiftFilter(true);
+                          }}
+                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                        >
+                          {SHIFT_TIME_OPTIONS.map((option) => (
+                            <option key={`empty-end-${option}`} value={option}>
+                              {t.shiftEnd} {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isExtracting}
-                  className="mx-auto mt-6 inline-flex items-center gap-3 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
-                >
-                  {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                  {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.emptyStateAction}
-                </button>
+                <div className="mx-auto mt-6 flex max-w-sm flex-col gap-3 sm:flex-row sm:justify-center">
+                  <button
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={isExtracting}
+                    className="inline-flex items-center justify-center gap-3 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+                  >
+                    {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                    {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : t.cameraMode}
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isExtracting}
+                    className="inline-flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black text-white transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus size={18} />
+                    {t.importPhoto}
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -847,18 +983,29 @@ export default function App() {
                     ))}
                   </div>
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => cameraInputRef.current?.click()}
                     disabled={isExtracting}
                     className={`px-3 rounded-xl transition-all flex items-center gap-2 ${
                       isExtracting
                         ? 'bg-emerald-500/15 text-emerald-300'
                         : 'text-white/60 hover:text-white hover:bg-white/5'
                     } disabled:opacity-70`}
-                    aria-label={t.scanSheet}
+                    aria-label={t.cameraMode}
                   >
                     {isExtracting ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
                     <span className="text-[10px] font-bold uppercase tracking-widest">
-                      {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : `${t.scanSheet} ${scanTerminal}`}
+                      {isExtracting ? SCAN_LOADING_MESSAGES[scanLoadingIndex] : `${t.cameraMode} ${scanTerminal}`}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isExtracting}
+                    className="px-3 rounded-xl transition-all flex items-center gap-2 text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-70"
+                    aria-label={t.importPhoto}
+                  >
+                    <Plus size={18} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">
+                      {t.importPhoto}
                     </span>
                   </button>
                 </>
@@ -944,13 +1091,23 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => cameraInputRef.current?.click()}
                         disabled={isExtracting}
                         className="rounded-xl border border-emerald-500/20 px-3 py-2 text-xs font-bold text-emerald-300 transition-all hover:bg-emerald-500/10 disabled:opacity-60"
                       >
                         <span className="inline-flex items-center gap-2">
                           {isExtracting ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                          {t.addImage}
+                          {t.cameraMode}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isExtracting}
+                        className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white disabled:opacity-60"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Plus size={14} />
+                          {t.importPhoto}
                         </span>
                       </button>
                       <button
