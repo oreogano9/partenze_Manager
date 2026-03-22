@@ -35,10 +35,13 @@ const isTomorrow = (date: Date) => {
   );
 };
 
-export const generateICS = (flights: Flight[]): string => {
-  const events = flights.map(f => {
+export const generateICS = async (flights: Flight[]): Promise<string> => {
+  const events = await Promise.all(flights.map(async (f) => {
     const startDate = new Date(f.std);
     const endDate = new Date(startDate.getTime() + 60 * 60000); // Assume 1 hour duration
+    const positionLabel = f.position.trim() || 'X';
+    const destinationName = await getIataCityName(f.destination, 'it');
+    const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
     
     const formatDate = (date: Date) => {
       return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
@@ -49,21 +52,21 @@ UID:${f.id}@flight-tracker
 DTSTAMP:${formatDate(new Date())}
 DTSTART:${formatDate(startDate)}
 DTEND:${formatDate(endDate)}
-SUMMARY:${f.position} - ${f.destination} - ${f.flightNumber}
-DESCRIPTION:Terminal: ${f.terminal}\\nPosition: ${f.position}\\nTags: ${f.tags.join(', ')}
+SUMMARY:${positionLabel} - ${f.destination} - ${f.flightNumber}
+DESCRIPTION:${[destinationName, containerDetails].filter(Boolean).join('\\n')}
 LOCATION:${f.terminal} - ${f.position}
 END:VEVENT`;
-  }).join('\n');
+  }));
 
   return `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Flight Tracker//EN
-${events}
+${events.join('\n')}
 END:VCALENDAR`;
 };
 
-export const downloadICS = (flights: Flight[]) => {
-  const content = generateICS(flights);
+export const downloadICS = async (flights: Flight[]) => {
+  const content = await generateICS(flights);
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -95,7 +98,7 @@ export const formatFlightsForClipboard = async (flights: Flight[]): Promise<stri
   }
 
   const formattedFlights = await Promise.all(flights.map(formatFlightForClipboard));
-  return `Add these as separate google calendar events:\n${formattedFlights.join('\n\n')}`;
+  return formattedFlights.join('\n\n');
 };
 
 export const copyFlightsToClipboard = async (flights: Flight[]) => {
