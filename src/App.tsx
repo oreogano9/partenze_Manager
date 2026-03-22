@@ -1149,12 +1149,12 @@ export default function App() {
                 <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.emptyStateHint}</p>
                 <div className="mt-6">
                   <div className="mx-auto flex max-w-sm flex-col gap-3">
-                    <div className="inline-flex justify-center bg-white/5 p-1 rounded-full border border-white/10">
+                    <div className="flex w-full justify-center bg-white/5 p-1.5 rounded-full border border-white/10">
                       {(['T1', 'T3'] as const).map((term) => (
                         <button
                           key={term}
                           onClick={() => setScanTerminal(term)}
-                          className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                          className={`flex-1 px-6 py-3 rounded-full text-sm font-black transition-all ${
                             scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
                           }`}
                         >
