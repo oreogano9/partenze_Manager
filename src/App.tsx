@@ -674,7 +674,7 @@ export default function App() {
             <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <Plane className="text-black" size={24} />
             </div>
-            <h1 className="text-xl font-black tracking-tighter uppercase italic">
+            <h1 className={`font-black tracking-tighter uppercase italic ${currentView === 'settings' ? 'text-lg' : 'text-xl'}`}>
               {currentView === 'settings' ? t.settings : t.appTitle}
             </h1>
           </div>
