@@ -5,6 +5,9 @@ export type PositionType = 'Scivolo' | 'Nastro';
 
 export interface Flight {
   id: string;
+  importedAt?: string;
+  carrier?: string;
+  flightNumberNumeric?: string;
   flightNumber: string;
   destination: string;
   std: string; // ISO string or HH:mm
@@ -14,6 +17,8 @@ export interface Flight {
   fc?: string;
   richiesta?: string;
   tot?: string;
+  anomaly?: string;
+  bag?: string;
 }
 
 export interface OCRFlightCandidate extends Flight {

@@ -22,6 +22,18 @@ const isToday = (date: Date) => {
   );
 };
 
+const isTomorrow = (date: Date) => {
+  const tomorrow = new Date();
+  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return (
+    date.getFullYear() === tomorrow.getFullYear() &&
+    date.getMonth() === tomorrow.getMonth() &&
+    date.getDate() === tomorrow.getDate()
+  );
+};
+
 export const generateICS = (flights: Flight[]): string => {
   const events = flights.map(f => {
     const startDate = new Date(f.std);
@@ -63,8 +75,8 @@ export const downloadICS = (flights: Flight[]) => {
 
 export const formatFlightForClipboard = (flight: Flight): string => {
   const endDate = new Date(flight.std);
-  const startDate = new Date(endDate.getTime() - 60 * 60000);
-  const dateLabel = isToday(endDate) ? 'Today' : formatLocalDate(endDate);
+  const startDate = new Date(endDate.getTime() - 40 * 60000);
+  const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
   const positionLabel = flight.position.trim() || 'X';
 
   return `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`;
@@ -75,7 +87,7 @@ export const formatFlightsForClipboard = (flights: Flight[]): string => {
     return '';
   }
 
-  return `Add these as separate google calendar events for today:\n${flights.map(formatFlightForClipboard).join('\n')}`;
+  return `Add these as separate google calendar events:\n${flights.map(formatFlightForClipboard).join('\n')}`;
 };
 
 export const copyFlightsToClipboard = async (flights: Flight[]) => {

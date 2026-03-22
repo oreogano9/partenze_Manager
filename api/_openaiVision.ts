@@ -1,6 +1,8 @@
 import type {OCRExtractionResult, OCRFlightCandidate, TerminalType} from '../src/types';
 
 type RawFlight = {
+  carrier?: unknown;
+  flightNumberNumeric?: unknown;
   flightNumber?: unknown;
   destination?: unknown;
   std?: unknown;
@@ -11,6 +13,8 @@ type RawFlight = {
   fc?: unknown;
   richiesta?: unknown;
   tot?: unknown;
+  anomaly?: unknown;
+  bag?: unknown;
   crossedOut?: unknown;
 };
 
@@ -21,6 +25,22 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 const asBoolean = (value: unknown) => value === true;
+
+const normalizeFlightNumber = (raw: RawFlight) => {
+  const directFlightNumber = asString(raw.flightNumber).toUpperCase();
+  if (directFlightNumber) {
+    return directFlightNumber;
+  }
+
+  const carrier = asString(raw.carrier).toUpperCase();
+  const numeric = asString(raw.flightNumberNumeric).toUpperCase();
+
+  if (!carrier || !numeric) {
+    return '';
+  }
+
+  return `${carrier} ${numeric}`;
+};
 
 const normalizeTime = (value: string) => {
   const match = value.replace('.', ':').match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
@@ -51,7 +71,9 @@ const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): Ter
 };
 
 const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: TerminalType): OCRFlightCandidate | null => {
-  const flightNumber = asString(raw.flightNumber).toUpperCase();
+  const carrier = asString(raw.carrier).toUpperCase();
+  const flightNumberNumeric = asString(raw.flightNumberNumeric).toUpperCase();
+  const flightNumber = normalizeFlightNumber(raw);
   const destination = asString(raw.destination).toUpperCase();
   const hhmm = normalizeTime(asString(raw.std));
 
@@ -64,6 +86,8 @@ const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: Term
 
   return {
     id: `ocr-${Date.now()}-${index}`,
+    carrier: carrier || undefined,
+    flightNumberNumeric: flightNumberNumeric || undefined,
     flightNumber,
     destination,
     std: buildISODate(hhmm),
@@ -73,6 +97,8 @@ const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: Term
     fc: asString(raw.fc).toUpperCase() || undefined,
     richiesta: asString(raw.richiesta) || undefined,
     tot: asString(raw.tot).toUpperCase() || undefined,
+    anomaly: asString(raw.anomaly) || undefined,
+    bag: asString(raw.bag) || undefined,
     sourceLine: asString(raw.sourceLine),
     confidence: Number(confidence.toFixed(2)),
     crossedOut: asBoolean(raw.crossedOut) || undefined,
@@ -130,7 +156,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
         {
           role: 'system',
           content:
-            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. flightNumber must include the airline/operator prefix when it is visible, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
+            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"carrier":"","flightNumberNumeric":"","flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","anomaly":"","bag":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. If the sheet has separate CARR and FLT.N columns, extract both and also return flightNumber combined with a space, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Treat the long central request column as the requested container mix/instructions and preserve it verbatim in richiesta. Do not move that full request text into fc. Use fc only for the dedicated FC column when it is actually filled or clearly visible as its own value. Preserve TOT, ANOMALIA, and BAG from their own columns when visible. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
         },
         {
           role: 'user',
@@ -138,7 +164,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". Many sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
             },
             {
               type: 'image_url',

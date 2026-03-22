@@ -6,7 +6,7 @@ import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
-import { Filter, Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
+import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
@@ -53,10 +53,15 @@ const pickPreferredValue = (current?: string, incoming?: string) => {
 
 const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => ({
   ...base,
+  importedAt: base.importedAt || incoming.importedAt,
+  carrier: pickPreferredValue(base.carrier, incoming.carrier) || undefined,
+  flightNumberNumeric: pickPreferredValue(base.flightNumberNumeric, incoming.flightNumberNumeric) || undefined,
   position: pickPreferredValue(base.position, incoming.position) || base.position,
   fc: pickPreferredValue(base.fc, incoming.fc) || undefined,
   richiesta: pickPreferredValue(base.richiesta, incoming.richiesta) || undefined,
   tot: pickPreferredValue(base.tot, incoming.tot) || undefined,
+  anomaly: pickPreferredValue(base.anomaly, incoming.anomaly) || undefined,
+  bag: pickPreferredValue(base.bag, incoming.bag) || undefined,
 });
 
 const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFlight[]) => {
@@ -132,6 +137,7 @@ const formatTimeOption = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
+const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
   flights: MOCK_FLIGHTS,
   language: 'it',
@@ -158,6 +164,22 @@ const resolveShiftEnd = (start: string, end: string) => {
   return shiftEnd;
 };
 
+const isImportedFlightExpired = (flight: Flight) => {
+  if (!flight.id.startsWith('ocr-') || !flight.importedAt) {
+    return false;
+  }
+
+  const importedAt = new Date(flight.importedAt).getTime();
+  if (Number.isNaN(importedAt)) {
+    return false;
+  }
+
+  return Date.now() - importedAt >= IMPORTED_FLIGHT_TTL_MS;
+};
+
+const pruneExpiredImportedFlights = (flights: Flight[]) =>
+  flights.filter((flight) => !isImportedFlightExpired(flight));
+
 const loadPersistedState = (): PersistedState => {
   const fallback: PersistedState = {
     appState: DEFAULT_APP_STATE,
@@ -177,11 +199,12 @@ const loadPersistedState = (): PersistedState => {
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    const persistedFlights = pruneExpiredImportedFlights(parsed.appState?.flights ?? DEFAULT_APP_STATE.flights);
     return {
       appState: {
         ...DEFAULT_APP_STATE,
         ...parsed.appState,
-        flights: parsed.appState?.flights ?? DEFAULT_APP_STATE.flights,
+        flights: persistedFlights,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
       scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
@@ -319,10 +342,11 @@ export default function App() {
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
   const [shiftStart, setShiftStart] = useState(defaultShiftStart);
   const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
-  const [useShiftFilter, setUseShiftFilter] = useState(false);
+  const [useShiftFilter, setUseShiftFilter] = useState(true);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
+  const [showShiftMenu, setShowShiftMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
@@ -333,6 +357,7 @@ export default function App() {
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const scanMenuRef = useRef<HTMLDivElement>(null);
+  const shiftMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
@@ -409,10 +434,11 @@ export default function App() {
     setScanTerminal('T1');
     setShiftStart(defaultShiftStart);
     setShiftEnd(defaultShiftEnd);
-    setUseShiftFilter(false);
+    setUseShiftFilter(true);
     setConnectionThreshold(10);
     setShowCalendarMenu(false);
     setShowScanMenu(false);
+    setShowShiftMenu(false);
     setCurrentView('board');
     setCopyFeedback(null);
     setOcrError(null);
@@ -475,14 +501,17 @@ export default function App() {
       return;
     }
 
-    const selectedFlights = ocrReview.flights.filter(flight => flight.selected);
+    const importedAt = new Date().toISOString();
+    const selectedFlights = ocrReview.flights
+      .filter(flight => flight.selected)
+      .map((flight) => ({ ...flight, importedAt }));
     if (selectedFlights.length === 0) {
       return;
     }
 
     setState(prev => ({
       ...prev,
-      flights: mergeIntoBoardFlights(prev.flights, selectedFlights),
+      flights: pruneExpiredImportedFlights(mergeIntoBoardFlights(prev.flights, selectedFlights)),
       searchQuery: '',
       showFocusOnly: false,
       filterType: 'All',
@@ -572,6 +601,9 @@ export default function App() {
       if (scanMenuRef.current && !scanMenuRef.current.contains(event.target as Node)) {
         setShowScanMenu(false);
       }
+      if (shiftMenuRef.current && !shiftMenuRef.current.contains(event.target as Node)) {
+        setShowShiftMenu(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -600,7 +632,10 @@ export default function App() {
     }
 
     const snapshot: PersistedState = {
-      appState: state,
+      appState: {
+        ...state,
+        flights: pruneExpiredImportedFlights(state.flights),
+      },
       terminalFilter,
       scanTerminal,
       connectionThreshold,
@@ -677,7 +712,10 @@ export default function App() {
               </button>
             ) : (
               <button
-                onClick={() => setCurrentView('settings')}
+                onClick={() => {
+                  setShowShiftMenu(false);
+                  setCurrentView('settings');
+                }}
                 className="rounded-xl border border-white/10 p-2 text-white/60 transition-all hover:bg-white/5 hover:text-white"
                 aria-label={t.settings}
               >
@@ -821,50 +859,80 @@ export default function App() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</span>
-            <select
-              value={shiftStart}
-              onChange={(event) => {
-                setShiftStart(event.target.value);
-                setUseShiftFilter(true);
-              }}
-              className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
-            >
-              {SHIFT_TIME_OPTIONS.map((option) => (
-                <option key={`start-${option}`} value={option}>{option}</option>
-              ))}
-            </select>
-            <select
-              value={shiftEnd}
-              onChange={(event) => {
-                setShiftEnd(event.target.value);
-                setUseShiftFilter(true);
-              }}
-              className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-bold text-white outline-none"
-            >
-              {SHIFT_TIME_OPTIONS.map((option) => (
-                <option key={`end-${option}`} value={option}>{option}</option>
-              ))}
-            </select>
+          <div className="relative" ref={shiftMenuRef}>
+            <AnimatePresence>
+              {showShiftMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute top-full left-0 mt-3 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#1a1a1a] p-3 shadow-2xl z-50"
+                >
+                  <div className="mb-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{t.shift}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={shiftStart}
+                      onChange={(event) => {
+                        setShiftStart(event.target.value);
+                        setUseShiftFilter(true);
+                      }}
+                      className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                    >
+                      {SHIFT_TIME_OPTIONS.map((option) => (
+                        <option key={`start-${option}`} value={option}>{option}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={shiftEnd}
+                      onChange={(event) => {
+                        setShiftEnd(event.target.value);
+                        setUseShiftFilter(true);
+                      }}
+                      className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none"
+                    >
+                      {SHIFT_TIME_OPTIONS.map((option) => (
+                        <option key={`end-${option}`} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setUseShiftFilter((prev) => !prev)}
+                      className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                        useShiftFilter
+                          ? 'bg-white/10 text-white hover:bg-white/15'
+                          : 'bg-emerald-500 text-black hover:bg-emerald-400'
+                      }`}
+                    >
+                      {useShiftFilter ? t.clearShift : t.enableShift}
+                    </button>
+                    <button
+                      onClick={() => setShowShiftMenu(false)}
+                      className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                    >
+                      {t.done}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <button
-              onClick={() => setUseShiftFilter((prev) => !prev)}
-              className={`rounded-lg px-3 py-1 text-xs font-bold transition-all ${
+              onClick={() => {
+                setShowCalendarMenu(false);
+                setShowScanMenu(false);
+                setShowShiftMenu(prev => !prev);
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
                 useShiftFilter
-                  ? 'bg-emerald-500 text-black'
-                  : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                  ? 'bg-emerald-500 text-black border-emerald-500'
+                  : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
               }`}
             >
-              {useShiftFilter ? `${shiftStart}-${shiftEnd}` : t.shift}
+              <ClockIcon size={14} />
+              {useShiftFilter ? `${t.shift} ${shiftStart}-${shiftEnd}` : `${t.shift} ${t.shiftDisabled}`}
             </button>
-            {useShiftFilter && (
-              <button
-                onClick={() => setUseShiftFilter(false)}
-                className="rounded-lg px-2 py-1 text-xs font-bold text-white/40 transition-all hover:bg-white/5 hover:text-white"
-              >
-                {t.clearShift}
-              </button>
-            )}
           </div>
 
           <button 
@@ -875,7 +943,7 @@ export default function App() {
                 : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
             }`}
           >
-            <Filter size={14} />
+            <ClockIcon size={14} />
             {state.showPast ? t.showPast : t.hidePast}
           </button>
 
@@ -1145,6 +1213,7 @@ export default function App() {
                   </AnimatePresence>
                   <button
                     onClick={() => {
+                      setShowShiftMenu(false);
                       setShowCalendarMenu(false);
                       setShowScanMenu(prev => !prev);
                     }}
@@ -1206,6 +1275,7 @@ export default function App() {
                 </AnimatePresence>
                 <button 
                   onClick={() => {
+                    setShowShiftMenu(false);
                     setShowScanMenu(false);
                     setShowCalendarMenu(!showCalendarMenu);
                   }}
