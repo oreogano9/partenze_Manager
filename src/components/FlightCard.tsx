@@ -11,6 +11,7 @@ interface FlightCardExpandedContentProps {
   flight: Flight;
   posType: string;
   t: any;
+  language: 'it' | 'en';
   confidence?: number;
 }
 
@@ -58,10 +59,109 @@ const getBadgeClasses = (value: string) => {
   return 'border-amber-400/15 bg-amber-500/10 text-amber-200';
 };
 
+const IATA_PATTERN = /\b[A-Z]{3}\b/g;
+
+const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ note, language }) => {
+  const [activeIata, setActiveIata] = useState<string | null>(null);
+  const [activeName, setActiveName] = useState('');
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeIata) {
+      return;
+    }
+
+    const closePopup = () => {
+      setActiveIata(null);
+      setActiveName('');
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        closePopup();
+      }
+    };
+
+    window.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', closePopup, true);
+
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', closePopup, true);
+    };
+  }, [activeIata]);
+
+  const matches = Array.from(note.matchAll(IATA_PATTERN)) as RegExpMatchArray[];
+  if (matches.length === 0) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80">
+        {note}
+      </div>
+    );
+  }
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  matches.forEach((match, index) => {
+    const code = match[0];
+    const start = match.index ?? 0;
+    const end = start + code.length;
+
+    if (start > lastIndex) {
+      parts.push(<span key={`text-${index}`}>{note.slice(lastIndex, start)}</span>);
+    }
+
+    parts.push(
+      <button
+        key={`iata-${code}-${start}`}
+        type="button"
+        onClick={async (event) => {
+          event.stopPropagation();
+          if (activeIata === code) {
+            setActiveIata(null);
+            setActiveName('');
+            return;
+          }
+
+          setActiveIata(code);
+          setActiveName(getCommonIataCityName(code, language));
+          const resolvedName = await getIataCityName(code, language);
+          setActiveName(resolvedName || code);
+        }}
+        className="rounded px-1 font-black text-cyan-200 underline decoration-cyan-400/50 underline-offset-2 transition-all hover:bg-cyan-500/10"
+      >
+        {code}
+      </button>
+    );
+
+    lastIndex = end;
+  });
+
+  if (lastIndex < note.length) {
+    parts.push(<span key="tail">{note.slice(lastIndex)}</span>);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80">
+        {parts}
+      </div>
+      {activeIata && (
+        <div className="absolute left-0 top-full z-20 mt-2 min-w-40 rounded-xl border border-white/10 bg-[#161616] px-3 py-2 shadow-2xl">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">{activeIata}</div>
+          <div className="mt-1 text-sm font-semibold text-white">{activeName || activeIata}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps> = ({
   flight,
   posType,
   t,
+  language,
   confidence,
 }) => (
   (() => {
@@ -110,12 +210,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                   <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
                   <div className="flex flex-wrap gap-2">
                     {parsedRequest.notes.map((note) => (
-                      <div
-                        key={note}
-                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80"
-                      >
-                        {note}
-                      </div>
+                      <TransitNotePill key={note} note={note} language={language} />
                     ))}
                   </div>
                 </div>
@@ -312,6 +407,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
               flight={flight}
               posType={posType}
               t={t}
+              language={language}
             />
           </motion.div>
         )}

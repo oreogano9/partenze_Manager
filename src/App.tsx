@@ -27,6 +27,7 @@ type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onToggle: (id: string) => void;
   t: any;
+  language: 'it' | 'en';
   mergeStatus: MergeStatus;
 };
 
@@ -229,7 +230,7 @@ const loadPersistedState = (): PersistedState => {
   }
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mergeStatus}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, language, mergeStatus}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
@@ -333,6 +334,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, t, mer
               flight={flight}
               posType={posType}
               t={t}
+              language={language}
               confidence={flight.confidence}
             />
           </motion.div>
@@ -1480,6 +1482,7 @@ export default function App() {
                               flight={flight}
                               onToggle={toggleOcrCandidate}
                               t={t}
+                              language={state.language}
                               mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
                             />
                           ))}
@@ -1557,6 +1560,7 @@ export default function App() {
                                   flight={flight}
                                   onToggle={toggleOcrCandidate}
                                   t={t}
+                                  language={state.language}
                                   mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
                                 />
                               ))}
