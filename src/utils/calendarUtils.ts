@@ -1,4 +1,5 @@
 import { Flight } from '../types';
+import { getIataCityName } from './iataLookup';
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -73,25 +74,34 @@ export const downloadICS = (flights: Flight[]) => {
   document.body.removeChild(link);
 };
 
-export const formatFlightForClipboard = (flight: Flight): string => {
+export const formatFlightForClipboard = async (flight: Flight): Promise<string> => {
   const endDate = new Date(flight.std);
   const startDate = new Date(endDate.getTime() - 40 * 60000);
   const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
   const positionLabel = flight.position.trim() || 'X';
+  const destinationName = await getIataCityName(flight.destination, 'en');
+  const containerDetails = [flight.fc, flight.richiesta, flight.tot].filter(Boolean).join(' | ');
+  const descriptionLines = [destinationName && `Description: ${destinationName}`, containerDetails && `Containers: ${containerDetails}`]
+    .filter(Boolean)
+    .join('\n');
 
-  return `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`;
+  return [
+    `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,
+    descriptionLines,
+  ].filter(Boolean).join('\n');
 };
 
-export const formatFlightsForClipboard = (flights: Flight[]): string => {
+export const formatFlightsForClipboard = async (flights: Flight[]): Promise<string> => {
   if (flights.length === 0) {
     return '';
   }
 
-  return `Add these as separate google calendar events:\n${flights.map(formatFlightForClipboard).join('\n')}`;
+  const formattedFlights = await Promise.all(flights.map(formatFlightForClipboard));
+  return `Add these as separate google calendar events:\n${formattedFlights.join('\n\n')}`;
 };
 
 export const copyFlightsToClipboard = async (flights: Flight[]) => {
-  const content = formatFlightsForClipboard(flights);
+  const content = await formatFlightsForClipboard(flights);
   if (!content) {
     return false;
   }
