@@ -17,6 +17,9 @@ type PersistedState = {
   appState: AppState;
   terminalFilter: 'ALL' | 'T1' | 'T3';
   scanTerminal: 'T1' | 'T3';
+  shiftStart: string;
+  shiftEnd: string;
+  useShiftFilter: boolean;
   connectionThreshold: 5 | 10;
 };
 
@@ -181,10 +184,17 @@ const pruneExpiredImportedFlights = (flights: Flight[]) =>
   flights.filter((flight) => !isImportedFlightExpired(flight));
 
 const loadPersistedState = (): PersistedState => {
+  const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
+  const defaultShiftEndDate = new Date();
+  defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);
+  const defaultShiftEnd = formatTimeOption(defaultShiftEndDate);
   const fallback: PersistedState = {
     appState: DEFAULT_APP_STATE,
     terminalFilter: 'ALL',
     scanTerminal: 'T1',
+    shiftStart: defaultShiftStart,
+    shiftEnd: defaultShiftEnd,
+    useShiftFilter: true,
     connectionThreshold: 10,
   };
 
@@ -208,6 +218,9 @@ const loadPersistedState = (): PersistedState => {
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
       scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
+      shiftStart: typeof parsed.shiftStart === 'string' ? parsed.shiftStart : defaultShiftStart,
+      shiftEnd: typeof parsed.shiftEnd === 'string' ? parsed.shiftEnd : defaultShiftEnd,
+      useShiftFilter: parsed.useShiftFilter !== undefined ? Boolean(parsed.useShiftFilter) : true,
       connectionThreshold: parsed.connectionThreshold === 5 ? 5 : 10,
     };
   } catch (error) {
@@ -340,9 +353,9 @@ export default function App() {
   const [state, setState] = useState<AppState>(persistedState.appState);
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
-  const [shiftStart, setShiftStart] = useState(defaultShiftStart);
-  const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
-  const [useShiftFilter, setUseShiftFilter] = useState(true);
+  const [shiftStart, setShiftStart] = useState(persistedState.shiftStart);
+  const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
+  const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
@@ -638,6 +651,9 @@ export default function App() {
       },
       terminalFilter,
       scanTerminal,
+      shiftStart,
+      shiftEnd,
+      useShiftFilter,
       connectionThreshold,
     };
 
@@ -1131,7 +1147,6 @@ export default function App() {
                   flight={flight} 
                   t={t}
                   language={state.language}
-                  onTagToggle={handleTagToggle}
                   isConnectedToNext={isConnectedToNext}
                   isConnectedToPrev={isConnectedToPrev}
                   urgencyColor={urgencyColor}

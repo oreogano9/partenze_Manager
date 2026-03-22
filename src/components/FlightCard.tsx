@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Flight } from '../types';
 import { getPositionType } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
-import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin, AlertTriangle, Copy, Download } from 'lucide-react';
-import { copyFlightsToClipboard, downloadICS } from '../utils/calendarUtils';
+import { getCommonIataCityName, getIataCityName } from '../utils/iataLookup';
+import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FlightCardExpandedContentProps {
@@ -12,8 +12,6 @@ interface FlightCardExpandedContentProps {
   posType: string;
   t: any;
   confidence?: number;
-  tagsContent?: React.ReactNode;
-  actionsContent?: React.ReactNode;
 }
 
 const parseContainerRequest = (request?: string) => {
@@ -47,8 +45,6 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   posType,
   t,
   confidence,
-  tagsContent,
-  actionsContent,
 }) => (
   (() => {
     const parsedRequest = parseContainerRequest(flight.richiesta);
@@ -78,7 +74,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
             <div className="flex flex-col gap-3">
               {uniqueBadges.length > 0 && (
                 <div>
-                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.containersNeeded}</div>
+                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.locali}</div>
                   <div className="flex flex-wrap gap-2">
                     {uniqueBadges.map((badge) => (
                       <span
@@ -93,7 +89,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
               )}
               {parsedRequest.notes.length > 0 && (
                 <div>
-                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.specialNotes}</div>
+                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
                   <div className="flex flex-col gap-1.5">
                     {parsedRequest.notes.map((note) => (
                       <div key={note} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium text-white/80">
@@ -136,8 +132,6 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
             <span className="font-black text-emerald-300">{Math.round(confidence * 100)}%</span>
           </div>
         )}
-        {tagsContent}
-        {actionsContent}
       </>
     );
   })()
@@ -147,7 +141,6 @@ interface FlightCardProps {
   flight: Flight;
   t: any;
   language: 'it' | 'en';
-  onTagToggle: (id: string, tag: string) => void;
   isConnectedToNext?: boolean;
   isConnectedToPrev?: boolean;
   urgencyColor?: string;
@@ -156,11 +149,10 @@ interface FlightCardProps {
 }
 
 export const FlightCard: React.FC<FlightCardProps> = ({ 
-  flight, t, language, onTagToggle, isConnectedToNext, isConnectedToPrev, 
+  flight, t, language, isConnectedToNext, isConnectedToPrev, 
   urgencyColor: propUrgencyColor, nextUrgencyColor, focusIndex
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [copyState, setCopyState] = useState<'idle' | 'done' | 'error'>('idle');
   const minutesToTarget = getMinutesToTarget(flight.std);
   const posType = getPositionType(flight.terminal, flight.position);
   
@@ -168,6 +160,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   const isFocused = minutesToSTD >= 30 && minutesToSTD <= 90;
   const urgencyColor = propUrgencyColor || getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
+  const [destinationName, setDestinationName] = useState(() => getCommonIataCityName(flight.destination, language));
   
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = "text-white/40";
@@ -183,17 +176,27 @@ export const FlightCard: React.FC<FlightCardProps> = ({
     labelClass = "bg-amber-600 text-white";
   }
 
-  const handleCopy = async () => {
-    try {
-      const copied = await copyFlightsToClipboard([flight]);
-      setCopyState(copied ? 'done' : 'error');
-    } catch (error) {
-      console.error('Clipboard copy failed', error);
-      setCopyState('error');
-    } finally {
-      window.setTimeout(() => setCopyState('idle'), 2000);
+  useEffect(() => {
+    let cancelled = false;
+    const commonName = getCommonIataCityName(flight.destination, language);
+    setDestinationName(commonName);
+
+    if (commonName) {
+      return () => {
+        cancelled = true;
+      };
     }
-  };
+
+    getIataCityName(flight.destination, language).then((name) => {
+      if (!cancelled) {
+        setDestinationName(name);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [flight.destination, language]);
 
   return (
     <motion.div 
@@ -254,6 +257,11 @@ export const FlightCard: React.FC<FlightCardProps> = ({
                 <span>STD: {formatHHmm(flight.std)}</span>
               </div>
             </div>
+            {destinationName && (
+              <div className="mt-1 text-[8px] leading-tight text-white/30 uppercase tracking-[0.14em] truncate">
+                {destinationName}
+              </div>
+            )}
           </div>
         </div>
 
@@ -283,53 +291,6 @@ export const FlightCard: React.FC<FlightCardProps> = ({
               flight={flight}
               posType={posType}
               t={t}
-              tagsContent={(
-                <div className="p-4 grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={() => onTagToggle(flight.id, 'Smistato')}
-                    className={`p-2 rounded-lg text-xs font-bold transition-all ${flight.tags.includes('Smistato') ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}
-                  >
-                    {t.smistato}
-                  </button>
-                  <button 
-                    onClick={() => onTagToggle(flight.id, 'Impilato')}
-                    className={`p-2 rounded-lg text-xs font-bold transition-all ${flight.tags.includes('Impilato') ? 'bg-indigo-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}
-                  >
-                    {t.impilato}
-                  </button>
-                  <button 
-                    onClick={() => onTagToggle(flight.id, 'Sotto Bordo')}
-                    className={`p-2 rounded-lg text-xs font-bold transition-all ${flight.tags.includes('Sotto Bordo') ? 'bg-emerald-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}
-                  >
-                    {t.sottoBordo}
-                  </button>
-                  <button 
-                    onClick={() => onTagToggle(flight.id, 'TAG?')}
-                    className={`p-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${flight.tags.includes('TAG?') ? 'bg-amber-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}
-                  >
-                    <AlertTriangle size={14} />
-                    {t.tagMissing}
-                  </button>
-                </div>
-              )}
-              actionsContent={(
-                <div className="px-4 pb-4 flex gap-2">
-                  <button
-                    onClick={handleCopy}
-                    className="flex-1 flex items-center justify-center gap-2 p-3 bg-emerald-500/10 text-emerald-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all border border-emerald-500/20"
-                  >
-                    <Copy size={14} />
-                    {copyState === 'done' ? t.copied : copyState === 'error' ? t.retry : t.copy}
-                  </button>
-                  <button 
-                    onClick={() => downloadICS([flight])}
-                    className="flex-1 flex items-center justify-center gap-2 p-3 bg-blue-500/10 text-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-500/20 transition-all border border-blue-500/20"
-                  >
-                    <Download size={14} />
-                    Apple/ICS
-                  </button>
-                </div>
-              )}
             />
           </motion.div>
         )}
