@@ -48,7 +48,7 @@ const getBadgeClasses = (value: string) => {
   }
 
   if (token.includes('BT')) {
-    return 'border-sky-400/20 bg-sky-500/10 text-sky-200';
+    return 'border-cyan-400/20 bg-cyan-500/10 text-cyan-200';
   }
 
   if (token.includes('BS')) {
