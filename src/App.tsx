@@ -42,11 +42,16 @@ type OCRFixModalProps = {
 };
 
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
+const isUnassignedPosition = (position: string) => {
+  const normalized = position.trim();
+  return normalized === '/' || normalized === '\\';
+};
+const hasValidRequiredPosition = (position: string) => Boolean(position.trim() || isUnassignedPosition(position));
 const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>) =>
   Boolean(
     flight.flightNumber.trim() &&
     flight.destination.trim() &&
-    flight.position.trim() &&
+    hasValidRequiredPosition(flight.position) &&
     (flight.terminal === 'T1' || flight.terminal === 'T3') &&
     isValidOcrStd(flight.std)
   );
@@ -56,7 +61,7 @@ const getFirstMissingOcrField = (flight: Pick<Flight, 'flightNumber' | 'destinat
   if (!flight.destination.trim()) return 'destination';
   if (!isValidOcrStd(flight.std)) return 'std';
   if (!(flight.terminal === 'T1' || flight.terminal === 'T3')) return 'terminal';
-  if (!flight.position.trim()) return 'position';
+  if (!hasValidRequiredPosition(flight.position)) return 'position';
   return null;
 };
 

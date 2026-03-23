@@ -3,6 +3,10 @@ import { Flight, TerminalType, PositionType } from './types';
 
 export const getPositionType = (terminal: TerminalType, position: string): PositionType => {
   const posNum = parseInt(position, 10);
+
+  if (!Number.isFinite(posNum)) {
+    return 'Baia';
+  }
   
   if (terminal === 'T1') {
     if (posNum === 39 || posNum === 46) return 'Carosello';
