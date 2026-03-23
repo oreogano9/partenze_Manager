@@ -1277,7 +1277,7 @@ export default function App() {
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
                   state.showPast 
                     ? 'bg-white text-black border-white' 
-                    : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                    : 'bg-[#111111] text-white/60 border-white/10 hover:bg-[#161616]'
                 }`}
               >
                 <ClockIcon size={14} />
