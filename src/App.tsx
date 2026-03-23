@@ -386,7 +386,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="border-t border-white/5 bg-black/20 overflow-hidden"
+            className="border-t border-white/5 bg-black/20 overflow-visible"
           >
             <FlightCardExpandedContent
               flight={flight}

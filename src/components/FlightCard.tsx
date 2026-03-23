@@ -21,21 +21,49 @@ const parseContainerRequest = (request?: string) => {
     return { badges: [] as string[], notes: [] as string[], raw: '' };
   }
 
-  const notes = Array.from(raw.matchAll(/\(([^)]+)\)/g))
-    .map((match) => match[1].trim())
+  const normalized = raw.replace(/[+]/g, '-');
+  const segments: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (const char of normalized) {
+    if (char === '(') {
+      depth += 1;
+      current += char;
+      continue;
+    }
+
+    if (char === ')') {
+      depth = Math.max(0, depth - 1);
+      current += char;
+      continue;
+    }
+
+    if (char === '-' && depth === 0) {
+      const trimmed = current.trim();
+      if (trimmed) {
+        segments.push(trimmed);
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  const trailing = current.trim();
+  if (trailing) {
+    segments.push(trailing);
+  }
+
+  const notes = segments
+    .filter((segment) => segment.startsWith('(') && segment.endsWith(')'))
+    .map((segment) => segment.trim())
     .filter(Boolean);
 
-  const stripped = raw.replace(/\([^)]*\)/g, ' ');
-  const normalized = stripped.replace(/[+]/g, '-');
-  const pieces = normalized
-    .split('-')
-    .flatMap((piece) => piece.split('/'))
-    .map((piece) => piece.trim())
-    .filter(Boolean);
-
-  const badges = pieces
-    .flatMap((piece) => piece.split(/\s+/))
-    .map((token) => token.trim().toUpperCase())
+  const badges = segments
+    .filter((segment) => !(segment.startsWith('(') && segment.endsWith(')')))
+    .map((segment) => segment.trim().toUpperCase())
     .filter(Boolean);
 
   return { badges, notes, raw };
@@ -397,11 +425,11 @@ export const FlightCard: React.FC<FlightCardProps> = ({
 
       <AnimatePresence>
         {isExpanded && (
-          <motion.div 
+          <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="border-t border-white/5 bg-black/20 overflow-hidden"
+            className="border-t border-white/5 bg-black/20 overflow-visible"
           >
             <FlightCardExpandedContent
               flight={flight}
