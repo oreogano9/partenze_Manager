@@ -6,6 +6,7 @@ import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
+import { getIataSearchIndex } from './utils/iataLookup';
 import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -600,6 +601,7 @@ export default function App() {
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
+  const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const scanMenuRef = useRef<HTMLDivElement>(null);
   const shiftMenuRef = useRef<HTMLDivElement>(null);
@@ -608,6 +610,20 @@ export default function App() {
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
 
   const t = TRANSLATIONS[state.language];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getIataSearchIndex(state.language).then((index) => {
+      if (!cancelled) {
+        setIataSearchIndex(index);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.language]);
 
   const filteredFlights = useMemo(() => {
     const now = new Date();
@@ -623,10 +639,12 @@ export default function App() {
         const matchesType = state.filterTypes.includes(posType);
         const matchesTerminal = terminalFilter === 'ALL' || f.terminal === terminalFilter;
         
+        const destinationSearchText = iataSearchIndex.get(f.destination.trim().toUpperCase()) || '';
         const matchesSearch = !query || 
           f.flightNumber.toLowerCase().includes(query) ||
           f.destination.toLowerCase().includes(query) ||
-          f.position.toLowerCase().includes(query);
+          f.position.toLowerCase().includes(query) ||
+          destinationSearchText.includes(query);
 
         const minutesToSTD = Math.floor((new Date(f.std).getTime() - Date.now()) / 60000);
         const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
@@ -640,7 +658,7 @@ export default function App() {
         return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus && matchesShift;
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter]);
+  }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter, iataSearchIndex]);
 
   const hasImportedFlights = useMemo(
     () => state.flights.some((flight) => flight.id.startsWith('ocr-')),

@@ -79,6 +79,9 @@ const toLocationName = (entry: AirportEntry | undefined, language: 'it' | 'en') 
 export const getCommonIataCityName = (iata: string, language: 'it' | 'en') =>
   toCityName(commonAirportMap.get(iata.trim().toUpperCase()), language);
 
+export const getCommonIataLocationName = (iata: string, language: 'it' | 'en') =>
+  toLocationName(commonAirportMap.get(iata.trim().toUpperCase()), language);
+
 const loadFullAirportMap = async () => {
   if (!fullAirportMapPromise) {
     fullAirportMapPromise = import('../IATA.json').then((module) => {
@@ -129,4 +132,20 @@ export const getIataLocationName = async (iata: string, language: 'it' | 'en') =
   const code = iata.trim().toUpperCase();
   const combinedAirportMap = await loadCombinedAirportMap();
   return toLocationName(combinedAirportMap.get(code) || commonAirportMap.get(code), language);
+};
+
+export const getIataSearchIndex = async (language: 'it' | 'en') => {
+  const combinedAirportMap = await loadCombinedAirportMap();
+  const mergedEntries = new Map<string, AirportEntry>([
+    ...commonAirportMap,
+    ...combinedAirportMap,
+  ]);
+
+  return new Map(
+    Array.from(mergedEntries.entries()).map(([code, entry]) => {
+      const city = toCityName(entry, language);
+      const location = toLocationName(entry, language);
+      return [code, [code, city, location].filter(Boolean).join(' ').toLowerCase()];
+    }),
+  );
 };
