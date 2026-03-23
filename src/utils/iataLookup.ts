@@ -17,6 +17,7 @@ const COMMON_FCO_AIRPORTS: AirportEntry[] = [
   { iata: 'BRU', city: 'Brussels', city_it: 'Bruxelles' },
   { iata: 'MUC', city: 'Munich', city_it: 'Monaco di Baviera' },
   { iata: 'BRI', city: 'Bari', city_it: 'Bari' },
+  { iata: 'BDS', city: 'Brindisi, Salento', city_it: 'Brindisi, Salento' },
   { iata: 'NAP', city: 'Naples', city_it: 'Napoli' },
   { iata: 'LIN', city: 'Milan, Linate', city_it: 'Milano, Linate' },
   { iata: 'TRN', city: 'Turin', city_it: 'Torino' },
