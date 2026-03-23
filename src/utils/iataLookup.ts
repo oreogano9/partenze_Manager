@@ -71,7 +71,7 @@ const loadFullAirportMap = async () => {
 
 const loadOverlayAirportMap = async () => {
   if (!overlayAirportMapPromise) {
-    overlayAirportMapPromise = import('../../../IATAtranslator/src/data/airportsv2.js').then((module) => {
+    overlayAirportMapPromise = import('../airportsv2.js').then((module) => {
       const airports = module.default as AirportEntry[];
       return new Map(airports.map((entry) => [entry.iata.toUpperCase(), entry]));
     });
