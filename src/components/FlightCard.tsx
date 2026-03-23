@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Flight } from '../types';
 import { getPositionType } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
-import { getCommonIataCityName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
+import { getCommonIataCityName, getCommonIataLocationName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
 import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -163,8 +163,8 @@ const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ no
           }
 
           setActiveIata(code);
-          setActiveName(getCommonIataCityName(code, language));
-          const resolvedName = await getIataCityName(code, language);
+          setActiveName(getCommonIataLocationName(code, language) || getCommonIataCityName(code, language));
+          const resolvedName = await getIataLocationName(code, language);
           setActiveName(resolvedName || code);
         }}
         className="rounded px-1 font-black text-cyan-200 underline decoration-cyan-400/50 underline-offset-2 transition-all hover:bg-cyan-500/10"
