@@ -270,7 +270,7 @@ const loadPersistedState = (): PersistedState => {
         ...DEFAULT_APP_STATE,
         ...parsed.appState,
         flights: persistedFlights,
-        filterTypes: persistedFilterTypes.length > 0 ? persistedFilterTypes : ALL_POSITION_TYPES,
+        filterTypes: persistedFilterTypes,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
       scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
@@ -974,7 +974,7 @@ export default function App() {
 
       return {
         ...prev,
-        filterTypes: nextFilterTypes.length > 0 ? nextFilterTypes : ALL_POSITION_TYPES,
+        filterTypes: nextFilterTypes,
       };
     });
   };
