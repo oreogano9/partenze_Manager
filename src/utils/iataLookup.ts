@@ -2,6 +2,8 @@ type AirportEntry = {
   iata: string;
   city?: string;
   city_it?: string;
+  country?: string;
+  country_it?: string;
 };
 
 const COMMON_FCO_AIRPORTS: AirportEntry[] = [
@@ -55,6 +57,25 @@ const toCityName = (entry: AirportEntry | undefined, language: 'it' | 'en') => {
   return entry.city?.trim() || entry.city_it?.trim() || '';
 };
 
+const toLocationName = (entry: AirportEntry | undefined, language: 'it' | 'en') => {
+  if (!entry) {
+    return '';
+  }
+
+  const city = language === 'it'
+    ? entry.city_it?.trim() || entry.city?.trim() || ''
+    : entry.city?.trim() || entry.city_it?.trim() || '';
+  const country = language === 'it'
+    ? entry.country_it?.trim() || entry.country?.trim() || ''
+    : entry.country?.trim() || entry.country_it?.trim() || '';
+
+  if (city && country) {
+    return `${city}, ${country}`;
+  }
+
+  return city || country;
+};
+
 export const getCommonIataCityName = (iata: string, language: 'it' | 'en') =>
   toCityName(commonAirportMap.get(iata.trim().toUpperCase()), language);
 
@@ -102,4 +123,10 @@ export const getIataCityName = async (iata: string, language: 'it' | 'en') => {
 
   const combinedAirportMap = await loadCombinedAirportMap();
   return toCityName(combinedAirportMap.get(code), language);
+};
+
+export const getIataLocationName = async (iata: string, language: 'it' | 'en') => {
+  const code = iata.trim().toUpperCase();
+  const combinedAirportMap = await loadCombinedAirportMap();
+  return toLocationName(combinedAirportMap.get(code) || commonAirportMap.get(code), language);
 };

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Flight } from '../types';
 import { getPositionType } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
-import { getCommonIataCityName, getIataCityName } from '../utils/iataLookup';
+import { getCommonIataCityName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
 import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -191,95 +191,112 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   t,
   language,
   confidence,
-}) => (
-  (() => {
-    const parsedRequest = parseContainerRequest(flight.richiesta);
-    const requestBadges = [...(flight.fc ? [flight.fc.toUpperCase()] : []), ...parsedRequest.badges];
-    const uniqueBadges = Array.from(new Set(requestBadges));
-    const hasOpsDetails = uniqueBadges.length > 0 || parsedRequest.notes.length > 0 || flight.tot || flight.anomaly || flight.bag;
+}) => {
+  const [destinationLocation, setDestinationLocation] = useState('');
 
-    return (
-      <>
-        <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MapPin size={12} className="text-white/30" />
-            <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
-          </div>
-          <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{flight.terminal}</div>
+  useEffect(() => {
+    let cancelled = false;
+    setDestinationLocation('');
+
+    getIataLocationName(flight.destination, language).then((name) => {
+      if (!cancelled) {
+        setDestinationLocation(name || '');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [flight.destination, language]);
+
+  const parsedRequest = parseContainerRequest(flight.richiesta);
+  const requestBadges = [...(flight.fc ? [flight.fc.toUpperCase()] : []), ...parsedRequest.badges];
+  const uniqueBadges = Array.from(new Set(requestBadges));
+  const hasOpsDetails = uniqueBadges.length > 0 || parsedRequest.notes.length > 0 || flight.tot || flight.anomaly || flight.bag;
+
+  return (
+    <>
+      <div className="px-4 py-3 border-b border-white/5 bg-white/[0.01] flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <MapPin size={12} className="text-white/30" />
+          <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
         </div>
-        {hasOpsDetails && (
-          <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{t.baggageDetails}</span>
-              {flight.tot && (
-                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-emerald-200">
-                  TOT {flight.tot}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-col gap-3">
-              {uniqueBadges.length > 0 && (
-                <div>
-                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.locali}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {uniqueBadges.map((badge) => (
-                      <span
-                        key={badge}
-                        className={`rounded-lg border px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide ${getBadgeClasses(badge)}`}
-                      >
-                        {badge}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {parsedRequest.notes.length > 0 && (
-                <div>
-                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {parsedRequest.notes.map((note) => (
-                      <TransitNotePill key={note} note={note} language={language} />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {(flight.anomaly || flight.bag) && (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {flight.anomaly && (
-                    <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.anomaly}</div>
-                      <div className="text-xs text-white/80">{flight.anomaly}</div>
-                    </div>
-                  )}
-                  {flight.bag && (
-                    <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.bag}</div>
-                      <div className="text-xs text-white/80">{flight.bag}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {parsedRequest.raw && uniqueBadges.length === 0 && parsedRequest.notes.length === 0 && (
-                <div>
-                  <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.rawRequest}</div>
-                  <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-mono text-white/80">
-                    {parsedRequest.raw}
-                  </div>
-                </div>
-              )}
-            </div>
+        <div className="text-right text-[10px] text-white/35 font-semibold tracking-wide">
+          {destinationLocation || flight.terminal}
+        </div>
+      </div>
+      {hasOpsDetails && (
+        <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{t.baggageDetails}</span>
+            {flight.tot && (
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-emerald-200">
+                TOT {flight.tot}
+              </span>
+            )}
           </div>
-        )}
-        {typeof confidence === 'number' && (
-          <div className="px-4 py-3 border-b border-white/5 text-xs text-white/65 flex items-center justify-between">
-            <span className="uppercase tracking-[0.2em] text-white/35">{t.confidence}</span>
-            <span className="font-black text-emerald-300">{Math.round(confidence * 100)}%</span>
+          <div className="flex flex-col gap-3">
+            {uniqueBadges.length > 0 && (
+              <div>
+                <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.locali}</div>
+                <div className="flex flex-wrap gap-2">
+                  {uniqueBadges.map((badge) => (
+                    <span
+                      key={badge}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide ${getBadgeClasses(badge)}`}
+                    >
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {parsedRequest.notes.length > 0 && (
+              <div>
+                <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
+                <div className="flex flex-wrap gap-2">
+                  {parsedRequest.notes.map((note) => (
+                    <TransitNotePill key={note} note={note} language={language} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {(flight.anomaly || flight.bag) && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {flight.anomaly && (
+                  <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.anomaly}</div>
+                    <div className="text-xs text-white/80">{flight.anomaly}</div>
+                  </div>
+                )}
+                {flight.bag && (
+                  <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/35">{t.bag}</div>
+                    <div className="text-xs text-white/80">{flight.bag}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            {parsedRequest.raw && uniqueBadges.length === 0 && parsedRequest.notes.length === 0 && (
+              <div>
+                <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.rawRequest}</div>
+                <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-mono text-white/80">
+                  {parsedRequest.raw}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </>
-    );
-  })()
-);
+        </div>
+      )}
+      {typeof confidence === 'number' && (
+        <div className="px-4 py-3 border-b border-white/5 text-xs text-white/65 flex items-center justify-between">
+          <span className="uppercase tracking-[0.2em] text-white/35">{t.confidence}</span>
+          <span className="font-black text-emerald-300">{Math.round(confidence * 100)}%</span>
+        </div>
+      )}
+    </>
+  );
+};
 
 interface FlightCardProps {
   flight: Flight;
