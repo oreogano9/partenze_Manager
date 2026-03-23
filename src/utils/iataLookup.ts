@@ -40,6 +40,7 @@ const commonAirportMap = new Map(
 );
 
 let fullAirportMapPromise: Promise<Map<string, AirportEntry>> | null = null;
+let overlayAirportMapPromise: Promise<Map<string, AirportEntry>> | null = null;
 
 const toCityName = (entry: AirportEntry | undefined, language: 'it' | 'en') => {
   if (!entry) {
@@ -67,6 +68,17 @@ const loadFullAirportMap = async () => {
   return fullAirportMapPromise;
 };
 
+const loadOverlayAirportMap = async () => {
+  if (!overlayAirportMapPromise) {
+    overlayAirportMapPromise = import('../../../IATAtranslator/src/data/airportsv2.js').then((module) => {
+      const airports = module.default as AirportEntry[];
+      return new Map(airports.map((entry) => [entry.iata.toUpperCase(), entry]));
+    });
+  }
+
+  return overlayAirportMapPromise;
+};
+
 export const getIataCityName = async (iata: string, language: 'it' | 'en') => {
   const code = iata.trim().toUpperCase();
   const commonName = toCityName(commonAirportMap.get(code), language);
@@ -75,5 +87,11 @@ export const getIataCityName = async (iata: string, language: 'it' | 'en') => {
   }
 
   const fullAirportMap = await loadFullAirportMap();
-  return toCityName(fullAirportMap.get(code), language);
+  const fullName = toCityName(fullAirportMap.get(code), language);
+  if (fullName) {
+    return fullName;
+  }
+
+  const overlayAirportMap = await loadOverlayAirportMap();
+  return toCityName(overlayAirportMap.get(code), language);
 };
