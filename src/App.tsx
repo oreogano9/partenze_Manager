@@ -18,6 +18,7 @@ type MergeField = 'flightNumber' | 'destination' | 'std' | 'position';
 type OCRMergeInfo = {
   status: MergeStatus;
   changedFields: Set<MergeField>;
+  previousFlight: Flight | null;
 };
 type OcrSelectionPreset = 'All' | 'None' | PositionType;
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
@@ -200,7 +201,7 @@ const getComparableStd = (std: string) => {
 const getOcrMergeInfo = (flight: OCRReviewFlight, existingFlights: Flight[]): OCRMergeInfo => {
   const existingFlight = findMatchingFlight(existingFlights, flight);
   if (!existingFlight) {
-    return { status: 'new', changedFields: new Set() };
+    return { status: 'new', changedFields: new Set(), previousFlight: null };
   }
 
   const changedFields = new Set<MergeField>();
@@ -221,6 +222,7 @@ const getOcrMergeInfo = (flight: OCRReviewFlight, existingFlights: Flight[]): OC
   return {
     status: changedFields.size === 0 ? 'unchanged' : 'update',
     changedFields,
+    previousFlight: existingFlight,
   };
 };
 
@@ -406,12 +408,13 @@ const loadPersistedState = (): PersistedState => {
 
 const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeInfo, canImport}) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showChangeDetails, setShowChangeDetails] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
   const urgencyColor = getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
   const posType = getPositionType(flight.terminal, flight.position);
-  const { status: mergeStatus, changedFields } = mergeInfo;
+  const { status: mergeStatus, changedFields, previousFlight } = mergeInfo;
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = 'text-white/40';
 
@@ -425,6 +428,13 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
     statusLabel = 'In chiusura';
     labelClass = 'bg-amber-600 text-white';
   }
+
+  const changeRows = previousFlight ? [
+    changedFields.has('flightNumber') ? { label: t.flightNumberLabel, before: previousFlight.flightNumber || '—', after: flight.flightNumber || '—' } : null,
+    changedFields.has('destination') ? { label: t.destinationLabel, before: previousFlight.destination || '—', after: flight.destination || '—' } : null,
+    changedFields.has('position') ? { label: t.positionLabel, before: previousFlight.position || '—', after: flight.position || '—' } : null,
+    changedFields.has('std') ? { label: t.std, before: formatHHmm(previousFlight.std), after: formatHHmm(flight.std) } : null,
+  ].filter(Boolean) as Array<{label: string; before: string; after: string}> : [];
 
   return (
     <motion.div
@@ -475,6 +485,23 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
               >
                 {mergeStatus === 'unchanged' ? t.alreadyPresent : mergeStatus === 'update' ? t.updatesExisting : t.newFlight}
               </span>
+              {mergeStatus === 'update' && changeRows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setShowChangeDetails((prev) => !prev);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider transition-all ${
+                    showChangeDetails
+                      ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
+                      : 'border-white/10 text-white/60 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <ClockIcon size={10} />
+                  {t.beforeAfter}
+                </button>
+              )}
             </div>
 
             {(flight.fc || flight.richiesta || flight.tot) && !isExpanded && (
@@ -491,6 +518,23 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
                 <span>STD: {formatHHmm(flight.std)}</span>
               </div>
             </div>
+            {showChangeDetails && changeRows.length > 0 && (
+              <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-500/5 p-2">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/80">
+                  {t.beforeAfterDetails}
+                </div>
+                <div className="space-y-1.5">
+                  {changeRows.map((row) => (
+                    <div key={row.label} className="grid grid-cols-[64px_minmax(0,1fr)_12px_minmax(0,1fr)] items-center gap-2 text-[10px]">
+                      <span className="font-bold uppercase tracking-wider text-white/35">{row.label}</span>
+                      <span className="truncate rounded-md border border-white/5 bg-black/20 px-2 py-1 text-white/55">{row.before}</span>
+                      <span className="text-center text-amber-200">→</span>
+                      <span className="truncate rounded-md border border-amber-400/20 bg-amber-500/10 px-2 py-1 font-bold text-amber-100">{row.after}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2017,7 +2061,7 @@ export default function App() {
                               onFieldChange={updateOcrCandidateField}
                               t={t}
                               language={state.language}
-                              mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set() }}
+                              mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set(), previousFlight: null }}
                               canImport={canImportOcrFlight(flight, state.flights)}
                             />
                           ))}
@@ -2111,7 +2155,7 @@ export default function App() {
                                   onFieldChange={updateOcrCandidateField}
                                   t={t}
                                   language={state.language}
-                                  mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set() }}
+                                  mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set(), previousFlight: null }}
                                   canImport={canImportOcrFlight(flight, state.flights)}
                                 />
                               ))}
