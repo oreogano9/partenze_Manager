@@ -28,17 +28,47 @@ const asString = (value: unknown) => (typeof value === 'string' ? value.trim() :
 const asBoolean = (value: unknown) => value === true;
 const normalizeSourceType = (value: unknown): OCRSourceType =>
   value === 'bay_screen' ? 'bay_screen' : 'sheet';
+const stripFlightCodeNoise = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+const repairFlightNumberSuffix = (value: string) =>
+  value
+    .replace(/[OQ]/g, '0')
+    .replace(/[IL]/g, '1')
+    .replace(/S/g, '5');
 const normalizeFlightCodeFormat = (value: string) => {
-  const compact = value.toUpperCase().trim().replace(/[\s-]+/g, '');
+  const compact = stripFlightCodeNoise(value.trim());
   const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
   if (!match) {
+    const salvageMatch = compact.match(/^([A-Z0-9]{2,3})([A-Z0-9]{1,5})$/);
+    if (salvageMatch) {
+      const repairedSuffix = repairFlightNumberSuffix(salvageMatch[2]);
+      if (/^\d{1,4}[A-Z]?$/.test(repairedSuffix)) {
+        return `${salvageMatch[1]} ${repairedSuffix}`;
+      }
+    }
+
     return value.toUpperCase().trim().replace(/\s+/g, ' ');
   }
   return `${match[1]} ${match[2]}`;
 };
 
-const normalizeFlightNumber = (raw: RawFlight) => {
+const getRawFlightCode = (raw: RawFlight) => {
   const directFlightNumber = normalizeFlightCodeFormat(asString(raw.flightNumber));
+  if (directFlightNumber) {
+    return directFlightNumber;
+  }
+
+  const carrier = stripFlightCodeNoise(asString(raw.carrier));
+  const numeric = repairFlightNumberSuffix(stripFlightCodeNoise(asString(raw.flightNumberNumeric)));
+
+  if (!carrier || !numeric || !/^\d{1,4}[A-Z]?$/.test(numeric)) {
+    return '';
+  }
+
+  return `${carrier} ${numeric}`;
+};
+
+const normalizeFlightNumber = (raw: RawFlight) => {
+  const directFlightNumber = getRawFlightCode(raw);
   if (directFlightNumber) {
     return directFlightNumber;
   }
@@ -96,6 +126,40 @@ const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): Ter
   return preferredTerminal || 'T1';
 };
 
+const inferSourceType = (rawFlights: RawFlight[], declaredSourceType: OCRSourceType): OCRSourceType => {
+  if (declaredSourceType === 'bay_screen') {
+    return 'bay_screen';
+  }
+
+  const bayScreenLikeRows = rawFlights.filter((flight) => {
+    const flightCode = getRawFlightCode(flight);
+    const time = normalizeTime(asString(flight.std));
+    const position = asString(flight.position);
+    const destination = asString(flight.destination).toUpperCase();
+    const hasRichSheetFields = Boolean(
+      asString(flight.fc) ||
+      asString(flight.richiesta) ||
+      asString(flight.tot) ||
+      asString(flight.anomaly) ||
+      asString(flight.bag),
+    );
+
+    return Boolean(
+      flightCode &&
+      time &&
+      position &&
+      !hasRichSheetFields &&
+      (!destination || /^[A-Z]{3}$/.test(destination)),
+    );
+  });
+
+  if (rawFlights.length > 0 && bayScreenLikeRows.length / rawFlights.length >= 0.6) {
+    return 'bay_screen';
+  }
+
+  return declaredSourceType;
+};
+
 const normalizeFlight = (
   raw: RawFlight,
   index: number,
@@ -142,7 +206,7 @@ const normalizeResponse = (payload: unknown, preferredTerminal?: TerminalType): 
     ? (payload as {text?: unknown; flights?: unknown; sourceType?: unknown})
     : {};
   const rawFlights = Array.isArray(object.flights) ? (object.flights as RawFlight[]) : [];
-  const sourceType = normalizeSourceType(object.sourceType);
+  const sourceType = inferSourceType(rawFlights, normalizeSourceType(object.sourceType));
 
   return {
     sourceType,

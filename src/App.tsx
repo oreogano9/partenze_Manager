@@ -44,9 +44,20 @@ type OCRFixModalProps = {
 };
 
 const normalizeFlightCode = (value: string) => {
-  const compact = value.toUpperCase().trim().replace(/[\s-]+/g, '');
+  const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
   const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
   if (!match) {
+    const salvageMatch = compact.match(/^([A-Z0-9]{2,3})([A-Z0-9]{1,5})$/);
+    if (salvageMatch) {
+      const repairedSuffix = salvageMatch[2]
+        .replace(/[OQ]/g, '0')
+        .replace(/[IL]/g, '1')
+        .replace(/S/g, '5');
+      if (/^\d{1,4}[A-Z]?$/.test(repairedSuffix)) {
+        return `${salvageMatch[1]} ${repairedSuffix}`;
+      }
+    }
+
     return value.toUpperCase().trim().replace(/\s+/g, ' ');
   }
   return `${match[1]} ${match[2]}`;
