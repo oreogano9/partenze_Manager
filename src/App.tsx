@@ -13,6 +13,7 @@ type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
 type MergeStatus = 'new' | 'update';
+type OcrSelectionPreset = 'All' | 'None' | PositionType;
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
 type PersistedState = {
   appState: AppState;
@@ -30,6 +31,16 @@ type OCRPreviewCardProps = {
   mergeStatus: MergeStatus;
 };
 
+type OcrRequiredField = 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position';
+
+type OCRFixModalProps = {
+  flight: OCRReviewFlight;
+  onFieldChange: (id: string, field: OcrRequiredField, value: string) => void;
+  onSkip: () => void;
+  onAdd: () => void;
+  t: any;
+};
+
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
 const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>) =>
   Boolean(
@@ -39,6 +50,15 @@ const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination'
     (flight.terminal === 'T1' || flight.terminal === 'T3') &&
     isValidOcrStd(flight.std)
   );
+
+const getFirstMissingOcrField = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>): OcrRequiredField | null => {
+  if (!flight.flightNumber.trim()) return 'flightNumber';
+  if (!flight.destination.trim()) return 'destination';
+  if (!isValidOcrStd(flight.std)) return 'std';
+  if (!(flight.terminal === 'T1' || flight.terminal === 'T3')) return 'terminal';
+  if (!flight.position.trim()) return 'position';
+  return null;
+};
 
 const updateStdTime = (existingStd: string, hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number);
@@ -422,6 +442,131 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
   );
 };
 
+const OCRFixModal: React.FC<OCRFixModalProps> = ({ flight, onFieldChange, onSkip, onAdd, t }) => {
+  const firstMissingField = getFirstMissingOcrField(flight);
+  const flightNumberRef = useRef<HTMLInputElement>(null);
+  const destinationRef = useRef<HTMLInputElement>(null);
+  const stdRef = useRef<HTMLInputElement>(null);
+  const positionRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const target =
+      firstMissingField === 'flightNumber' ? flightNumberRef.current :
+      firstMissingField === 'destination' ? destinationRef.current :
+      firstMissingField === 'std' ? stdRef.current :
+      firstMissingField === 'position' ? positionRef.current :
+      null;
+
+    if (!target) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      target.focus();
+      target.select();
+    }, 60);
+
+    return () => window.clearTimeout(timer);
+  }, [firstMissingField, flight.id]);
+
+  const getInputClassName = (field: OcrRequiredField) =>
+    `rounded-xl border px-3 py-3 text-sm font-bold text-white outline-none transition-all ${
+      firstMissingField === field
+        ? 'border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400/40'
+        : 'border-white/10 bg-black/20'
+    }`;
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#111111] shadow-2xl">
+        <div className="border-b border-white/5 px-5 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-amber-300">{t.fixBeforeImport}</p>
+          <p className="mt-2 text-sm text-white/55">{t.fixBeforeImportHint}</p>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl bg-white/10 text-white">
+                <span className="text-2xl font-black leading-none">{flight.position || 'X'}</span>
+                <span className="mt-1 text-sm font-black uppercase leading-none">{flight.destination || '---'}</span>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-base font-black text-white">{flight.flightNumber || '---'}</div>
+                <div className="mt-1 text-xs text-white/45">STD: {isValidOcrStd(flight.std) ? formatHHmm(flight.std) : '--:--'}</div>
+                <div className="mt-1 text-xs font-bold uppercase text-white/35">{flight.terminal || 'T1'}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            <input
+              ref={flightNumberRef}
+              value={flight.flightNumber}
+              onChange={(event) => onFieldChange(flight.id, 'flightNumber', event.target.value.toUpperCase())}
+              placeholder={t.flightNumberLabel}
+              className={getInputClassName('flightNumber')}
+            />
+            <input
+              ref={destinationRef}
+              value={flight.destination}
+              onChange={(event) => onFieldChange(flight.id, 'destination', event.target.value.toUpperCase())}
+              placeholder={t.destinationLabel}
+              className={`${getInputClassName('destination')} uppercase`}
+            />
+            <input
+              ref={stdRef}
+              value={formatHHmm(flight.std)}
+              onChange={(event) => onFieldChange(flight.id, 'std', event.target.value)}
+              placeholder="HH:mm"
+              className={getInputClassName('std')}
+            />
+            <input
+              ref={positionRef}
+              value={flight.position}
+              onChange={(event) => onFieldChange(flight.id, 'position', event.target.value.toUpperCase())}
+              placeholder={t.positionLabel}
+              className={`${getInputClassName('position')} uppercase`}
+            />
+            <div className={`flex rounded-xl border p-1 ${
+              firstMissingField === 'terminal'
+                ? 'border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400/40'
+                : 'border-white/10 bg-black/20'
+            }`}>
+              {(['T1', 'T3'] as const).map((term) => (
+                <button
+                  key={term}
+                  type="button"
+                  onClick={() => onFieldChange(flight.id, 'terminal', term)}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+                    flight.terminal === term ? 'bg-emerald-500 text-black' : 'text-white/50 hover:text-white'
+                  }`}
+                >
+                  {term}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 border-t border-white/5 px-5 py-4">
+          <button
+            onClick={onSkip}
+            className="flex-1 rounded-xl border border-white/10 px-3 py-3 text-sm font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+          >
+            {t.skip}
+          </button>
+          <button
+            onClick={onAdd}
+            disabled={!isOcrFlightComplete(flight)}
+            className="flex-1 rounded-xl bg-emerald-500 px-3 py-3 text-sm font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
+          >
+            {t.addThisFlight}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
   const defaultShiftEndDate = new Date();
@@ -444,6 +589,8 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
   const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | PositionType>('All');
+  const [ocrSelectionPreset, setOcrSelectionPreset] = useState<OcrSelectionPreset>('All');
+  const [ocrFixFlightId, setOcrFixFlightId] = useState<string | null>(null);
   const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
@@ -489,6 +636,13 @@ export default function App() {
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
   }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter]);
+
+  const hasImportedFlights = useMemo(
+    () => state.flights.some((flight) => flight.id.startsWith('ocr-')),
+    [state.flights],
+  );
+  const shouldShowOnboardingEmptyState = filteredFlights.length === 0 && !hasImportedFlights;
+  const shouldShowFilteredEmptyState = filteredFlights.length === 0 && hasImportedFlights;
 
   const handleTagToggle = (id: string, tag: string) => {
     setState(prev => ({
@@ -540,6 +694,8 @@ export default function App() {
 
   const closeOcrReview = () => {
     setOcrReviewTypeFilter('All');
+    setOcrSelectionPreset('All');
+    setOcrFixFlightId(null);
     setMobileOcrPanel('flights');
     setOcrReview(prev => {
       prev?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
@@ -595,9 +751,10 @@ export default function App() {
       }
       return {
         ...prev,
-        flights: prev.flights.map(flight => ({...flight, selected})),
+        flights: prev.flights.map(flight => ({...flight, selected: selected ? isOcrFlightComplete(flight) : false})),
       };
     });
+    setOcrSelectionPreset(selected ? 'All' : 'None');
   };
 
   const setOcrSelectionByType = (type: PositionType) => {
@@ -609,11 +766,12 @@ export default function App() {
         ...prev,
         flights: prev.flights.map(flight => ({
           ...flight,
-          selected: getPositionType(flight.terminal, flight.position) === type,
+          selected: getPositionType(flight.terminal, flight.position) === type && isOcrFlightComplete(flight),
         })),
       };
     });
     setOcrReviewTypeFilter(type);
+    setOcrSelectionPreset(type);
   };
 
   const handleImportFlights = () => {
@@ -621,21 +779,24 @@ export default function App() {
       return;
     }
 
-    const importedAt = new Date().toISOString();
-    const selectedFlights = ocrReview.flights
-      .filter(flight => flight.selected)
-      .map((flight) => ({ ...flight, importedAt }));
+    const selectedFlights = ocrReview.flights.filter(flight => flight.selected);
     if (selectedFlights.length === 0) {
       return;
     }
-    if (selectedFlights.some((flight) => !isOcrFlightComplete(flight))) {
-      setOcrError(t.completeRequiredFieldsHint);
+
+    const firstInvalidFlight = selectedFlights.find((flight) => !isOcrFlightComplete(flight));
+    if (firstInvalidFlight) {
+      setOcrError(null);
+      setOcrFixFlightId(firstInvalidFlight.id);
       return;
     }
 
+    const importedAt = new Date().toISOString();
+    const finalizedFlights = selectedFlights.map((flight) => ({ ...flight, importedAt }));
+
     setState(prev => ({
       ...prev,
-      flights: pruneExpiredImportedFlights(mergeIntoBoardFlights(prev.flights, selectedFlights)),
+      flights: pruneExpiredImportedFlights(mergeIntoBoardFlights(prev.flights, finalizedFlights)),
       searchQuery: '',
       showFocusOnly: false,
       filterTypes: ALL_POSITION_TYPES,
@@ -669,6 +830,7 @@ export default function App() {
 
         if (!prev) {
           setOcrReviewTypeFilter('All');
+          setOcrSelectionPreset('All');
           setMobileOcrPanel('flights');
           return {
             text: result.text,
@@ -783,6 +945,9 @@ export default function App() {
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
   const hasInvalidSelectedOcrFlights = ocrReview ? ocrReview.flights.some(flight => flight.selected && !isOcrFlightComplete(flight)) : false;
+  const ocrFixFlight = ocrReview && ocrFixFlightId
+    ? ocrReview.flights.find((flight) => flight.id === ocrFixFlightId) ?? null
+    : null;
   const existingBoardFlightKeys = useMemo(
     () => new Set(state.flights.map((flight) => getFlightMatchKey(flight))),
     [state.flights],
@@ -808,6 +973,48 @@ export default function App() {
       };
     });
   };
+
+  const skipOcrFixFlight = () => {
+    if (!ocrFixFlightId) {
+      return;
+    }
+
+    setOcrReview((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      const updatedFlights = prev.flights.map((flight) =>
+        flight.id === ocrFixFlightId ? { ...flight, selected: false } : flight
+      );
+      const nextInvalid = updatedFlights.find((flight) => flight.selected && !isOcrFlightComplete(flight));
+      setOcrFixFlightId(nextInvalid ? nextInvalid.id : null);
+
+      return {
+        ...prev,
+        flights: updatedFlights,
+      };
+    });
+  };
+
+  useEffect(() => {
+    if (!ocrReview || !ocrFixFlightId) {
+      return;
+    }
+
+    const currentFlight = ocrReview.flights.find((flight) => flight.id === ocrFixFlightId);
+    if (!currentFlight) {
+      setOcrFixFlightId(null);
+      return;
+    }
+
+    if (isOcrFlightComplete(currentFlight)) {
+      const nextInvalid = ocrReview.flights.find(
+        (flight) => flight.selected && flight.id !== currentFlight.id && !isOcrFlightComplete(flight),
+      );
+      setOcrFixFlightId(nextInvalid ? nextInvalid.id : null);
+    }
+  }, [ocrReview, ocrFixFlightId]);
   const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
   const annotatedOcrText = useMemo(() => {
     if (!ocrReview) {
@@ -982,7 +1189,7 @@ export default function App() {
             capture="environment"
             className="hidden"
           />
-          {filteredFlights.length > 0 && (
+          {!shouldShowOnboardingEmptyState && (
             <div className="flex flex-wrap gap-2 mb-6">
               <div className="relative" ref={shiftMenuRef}>
                 <AnimatePresence>
@@ -1149,7 +1356,7 @@ export default function App() {
 
         {/* Flight List */}
         <div className="space-y-0">
-          {filteredFlights.length === 0 ? (
+          {shouldShowOnboardingEmptyState ? (
             <div className="py-12">
               <div className="mx-auto max-w-xl rounded-[28px] border border-white/10 bg-[#111111] px-6 py-10 text-center shadow-2xl">
                 <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-500/10 border border-emerald-500/20">
@@ -1221,6 +1428,13 @@ export default function App() {
                     {t.importPhoto}
                   </button>
                 </div>
+              </div>
+            </div>
+          ) : shouldShowFilteredEmptyState ? (
+            <div className="py-10">
+              <div className="mx-auto max-w-xl rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-6 py-8 text-center">
+                <p className="text-lg font-black text-white">{t.noFlightsVisible}</p>
+                <p className="mx-auto mt-3 max-w-md text-sm text-white/50">{t.noFlightsVisibleHint}</p>
               </div>
             </div>
           ) : (
@@ -1530,7 +1744,7 @@ export default function App() {
                           <button
                             onClick={() => setOcrSelectionByType('Scivolo')}
                             className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrReviewTypeFilter === 'Scivolo'
+                              ocrSelectionPreset === 'Scivolo'
                                 ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
                                 : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
                             }`}
@@ -1540,7 +1754,7 @@ export default function App() {
                           <button
                             onClick={() => setOcrSelectionByType('Carosello')}
                             className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrReviewTypeFilter === 'Carosello'
+                              ocrSelectionPreset === 'Carosello'
                                 ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
                                 : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
                             }`}
@@ -1550,7 +1764,7 @@ export default function App() {
                           <button
                             onClick={() => setOcrSelectionByType('Baia')}
                             className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrReviewTypeFilter === 'Baia'
+                              ocrSelectionPreset === 'Baia'
                                 ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
                                 : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
                             }`}
@@ -1563,7 +1777,7 @@ export default function App() {
                               toggleAllOcrCandidates(true);
                             }}
                             className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrReviewTypeFilter === 'All'
+                              ocrSelectionPreset === 'All'
                                 ? 'border-white/20 bg-white/10 text-white'
                                 : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
                             }`}
@@ -1572,7 +1786,11 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => toggleAllOcrCandidates(false)}
-                            className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                              ocrSelectionPreset === 'None'
+                                ? 'border-white/20 bg-white/10 text-white'
+                                : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
+                            }`}
                           >
                             {t.none}
                           </button>
@@ -1623,7 +1841,7 @@ export default function App() {
                             <button
                               onClick={() => setOcrSelectionByType('Scivolo')}
                               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrReviewTypeFilter === 'Scivolo'
+                                ocrSelectionPreset === 'Scivolo'
                                   ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
                                   : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
                               }`}
@@ -1633,7 +1851,7 @@ export default function App() {
                             <button
                               onClick={() => setOcrSelectionByType('Carosello')}
                               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrReviewTypeFilter === 'Carosello'
+                                ocrSelectionPreset === 'Carosello'
                                   ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
                                   : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
                               }`}
@@ -1643,7 +1861,7 @@ export default function App() {
                             <button
                               onClick={() => setOcrSelectionByType('Baia')}
                               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrReviewTypeFilter === 'Baia'
+                                ocrSelectionPreset === 'Baia'
                                   ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
                                   : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
                               }`}
@@ -1656,7 +1874,7 @@ export default function App() {
                                 toggleAllOcrCandidates(true);
                               }}
                               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrReviewTypeFilter === 'All'
+                                ocrSelectionPreset === 'All'
                                   ? 'border-white/20 bg-white/10 text-white'
                                   : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
                               }`}
@@ -1665,7 +1883,11 @@ export default function App() {
                             </button>
                             <button
                               onClick={() => toggleAllOcrCandidates(false)}
-                              className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-bold text-white/70 transition-all hover:bg-white/5 hover:text-white"
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                ocrSelectionPreset === 'None'
+                                  ? 'border-white/20 bg-white/10 text-white'
+                                  : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
+                              }`}
                             >
                               {t.none}
                             </button>
@@ -1749,7 +1971,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={handleImportFlights}
-                      disabled={selectedOcrCount === 0 || hasInvalidSelectedOcrFlights}
+                      disabled={selectedOcrCount === 0}
                       className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-black transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30"
                     >
                       <span className="inline-flex items-center gap-2">
@@ -1758,7 +1980,19 @@ export default function App() {
                       </span>
                     </button>
                   </div>
+                  {hasInvalidSelectedOcrFlights && !ocrFixFlight && (
+                    <p className="mt-2 text-[11px] text-amber-200/80">{t.completeRequiredFieldsHint}</p>
+                  )}
                 </div>
+                {ocrFixFlight && (
+                  <OCRFixModal
+                    flight={ocrFixFlight}
+                    onFieldChange={updateOcrCandidateField}
+                    onSkip={skipOcrFixFlight}
+                    onAdd={handleImportFlights}
+                    t={t}
+                  />
+                )}
               </motion.div>
             </div>
           </motion.div>
