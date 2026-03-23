@@ -372,7 +372,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   return (
     <motion.div 
       layout
-      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4`}
+      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4 overflow-visible ${isExpanded ? 'z-30' : 'z-0'}`}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
     >

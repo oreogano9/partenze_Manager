@@ -309,7 +309,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
   return (
     <motion.div
       layout
-      className={`rounded-xl border shadow-lg relative ${flight.selected ? 'border-emerald-500/20 bg-[#1a1a1a]' : 'border-white/8 bg-[#141414] opacity-70'}`}
+      className={`rounded-xl border shadow-lg relative overflow-visible ${flight.selected ? 'border-emerald-500/20 bg-[#1a1a1a]' : 'border-white/8 bg-[#141414] opacity-70'} ${isExpanded ? 'z-30' : 'z-0'}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
     >
