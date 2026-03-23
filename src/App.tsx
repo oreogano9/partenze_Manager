@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Flight, OCRFlightCandidate } from './types';
+import { AppState, Flight, OCRFlightCandidate, PositionType } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
@@ -13,13 +13,11 @@ type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
 type MergeStatus = 'new' | 'update';
+const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
 type PersistedState = {
   appState: AppState;
   terminalFilter: 'ALL' | 'T1' | 'T3';
   scanTerminal: 'T1' | 'T3';
-  shiftStart: string;
-  shiftEnd: string;
-  useShiftFilter: boolean;
   connectionThreshold: 5 | 10;
 };
 
@@ -174,7 +172,7 @@ const DEFAULT_APP_STATE: AppState = {
   flights: MOCK_FLIGHTS,
   language: 'it',
   showPast: false,
-  filterType: 'All',
+  filterTypes: ALL_POSITION_TYPES,
   searchQuery: '',
   showFocusOnly: false,
   showMockFlights: false,
@@ -221,9 +219,6 @@ const loadPersistedState = (): PersistedState => {
     appState: DEFAULT_APP_STATE,
     terminalFilter: 'ALL',
     scanTerminal: 'T1',
-    shiftStart: defaultShiftStart,
-    shiftEnd: defaultShiftEnd,
-    useShiftFilter: true,
     connectionThreshold: 10,
   };
 
@@ -239,17 +234,21 @@ const loadPersistedState = (): PersistedState => {
 
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
     const persistedFlights = pruneExpiredImportedFlights(parsed.appState?.flights ?? DEFAULT_APP_STATE.flights);
+    const legacyFilterType = (parsed.appState as AppState & { filterType?: PositionType | 'All' } | undefined)?.filterType;
+    const persistedFilterTypes = Array.isArray(parsed.appState?.filterTypes)
+      ? parsed.appState.filterTypes.filter((type): type is PositionType => ALL_POSITION_TYPES.includes(type as PositionType))
+      : legacyFilterType && legacyFilterType !== 'All'
+        ? [legacyFilterType]
+        : ALL_POSITION_TYPES;
     return {
       appState: {
         ...DEFAULT_APP_STATE,
         ...parsed.appState,
         flights: persistedFlights,
+        filterTypes: persistedFilterTypes.length > 0 ? persistedFilterTypes : ALL_POSITION_TYPES,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
       scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
-      shiftStart: typeof parsed.shiftStart === 'string' ? parsed.shiftStart : defaultShiftStart,
-      shiftEnd: typeof parsed.shiftEnd === 'string' ? parsed.shiftEnd : defaultShiftEnd,
-      useShiftFilter: parsed.useShiftFilter !== undefined ? Boolean(parsed.useShiftFilter) : true,
       connectionThreshold: parsed.connectionThreshold === 5 ? 5 : 10,
     };
   } catch (error) {
@@ -434,9 +433,9 @@ export default function App() {
   const [state, setState] = useState<AppState>(persistedState.appState);
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
-  const [shiftStart, setShiftStart] = useState(persistedState.shiftStart);
-  const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
-  const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
+  const [shiftStart, setShiftStart] = useState(defaultShiftStart);
+  const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
+  const [useShiftFilter, setUseShiftFilter] = useState(true);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
@@ -444,7 +443,7 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
-  const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | 'Scivolo' | 'Nastro'>('All');
+  const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | PositionType>('All');
   const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
@@ -469,7 +468,7 @@ export default function App() {
         const isPast = new Date(f.std) <= now;
         const matchesPast = state.showPast || !isPast;
         const posType = getPositionType(f.terminal, f.position);
-        const matchesType = state.filterType === 'All' || posType === state.filterType;
+        const matchesType = state.filterTypes.includes(posType);
         const matchesTerminal = terminalFilter === 'ALL' || f.terminal === terminalFilter;
         
         const matchesSearch = !query || 
@@ -489,7 +488,7 @@ export default function App() {
         return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus && matchesShift;
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [state.flights, state.showPast, state.filterType, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter]);
+  }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter]);
 
   const handleTagToggle = (id: string, tag: string) => {
     setState(prev => ({
@@ -601,7 +600,7 @@ export default function App() {
     });
   };
 
-  const setOcrSelectionByType = (type: 'Scivolo' | 'Nastro') => {
+  const setOcrSelectionByType = (type: PositionType) => {
     setOcrReview(prev => {
       if (!prev) {
         return prev;
@@ -639,7 +638,7 @@ export default function App() {
       flights: pruneExpiredImportedFlights(mergeIntoBoardFlights(prev.flights, selectedFlights)),
       searchQuery: '',
       showFocusOnly: false,
-      filterType: 'All',
+      filterTypes: ALL_POSITION_TYPES,
       showPast: true,
     }));
     setTerminalFilter('ALL');
@@ -763,14 +762,11 @@ export default function App() {
       },
       terminalFilter,
       scanTerminal,
-      shiftStart,
-      shiftEnd,
-      useShiftFilter,
       connectionThreshold,
     };
 
     window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
-  }, [state, terminalFilter, scanTerminal, shiftStart, shiftEnd, useShiftFilter, connectionThreshold]);
+  }, [state, terminalFilter, scanTerminal, connectionThreshold]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -798,6 +794,20 @@ export default function App() {
       ))
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
     : [];
+
+  const togglePositionTypeFilter = (type: PositionType) => {
+    setState((prev) => {
+      const isSelected = prev.filterTypes.includes(type);
+      const nextFilterTypes = isSelected
+        ? prev.filterTypes.filter((currentType) => currentType !== type)
+        : [...prev.filterTypes, type];
+
+      return {
+        ...prev,
+        filterTypes: nextFilterTypes.length > 0 ? nextFilterTypes : ALL_POSITION_TYPES,
+      };
+    });
+  };
   const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
   const annotatedOcrText = useMemo(() => {
     if (!ocrReview) {
@@ -1075,17 +1085,17 @@ export default function App() {
               </button>
 
               <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
-                {(['All', 'Scivolo', 'Nastro'] as const).map((type) => (
+                {(ALL_POSITION_TYPES).map((type) => (
                   <button
                     key={type}
-                    onClick={() => setState(prev => ({ ...prev, filterType: type }))}
+                    onClick={() => togglePositionTypeFilter(type)}
                     className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                      state.filterType === type 
+                      state.filterTypes.includes(type)
                         ? 'bg-emerald-500 text-black' 
                         : 'text-white/40 hover:text-white/60'
                     }`}
                   >
-                    {type === 'All' ? t.all : type.toUpperCase()}
+                    {type === 'Scivolo' ? t.scivoli : type === 'Carosello' ? t.caroselli : t.baie}
                   </button>
                 ))}
               </div>
@@ -1528,14 +1538,24 @@ export default function App() {
                             {t.onlyScivoli}
                           </button>
                           <button
-                            onClick={() => setOcrSelectionByType('Nastro')}
+                            onClick={() => setOcrSelectionByType('Carosello')}
                             className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrReviewTypeFilter === 'Nastro'
+                              ocrReviewTypeFilter === 'Carosello'
                                 ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
                                 : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
                             }`}
                           >
-                            {t.onlyNastri}
+                            {t.onlyCaroselli}
+                          </button>
+                          <button
+                            onClick={() => setOcrSelectionByType('Baia')}
+                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                              ocrReviewTypeFilter === 'Baia'
+                                ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
+                                : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
+                            }`}
+                          >
+                            {t.onlyBaie}
                           </button>
                           <button
                             onClick={() => {
@@ -1611,14 +1631,24 @@ export default function App() {
                               {t.onlyScivoli}
                             </button>
                             <button
-                              onClick={() => setOcrSelectionByType('Nastro')}
+                              onClick={() => setOcrSelectionByType('Carosello')}
                               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrReviewTypeFilter === 'Nastro'
+                                ocrReviewTypeFilter === 'Carosello'
                                   ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
                                   : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
                               }`}
                             >
-                              {t.onlyNastri}
+                              {t.onlyCaroselli}
+                            </button>
+                            <button
+                              onClick={() => setOcrSelectionByType('Baia')}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                ocrReviewTypeFilter === 'Baia'
+                                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
+                                  : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
+                              }`}
+                            >
+                              {t.onlyBaie}
                             </button>
                             <button
                               onClick={() => {

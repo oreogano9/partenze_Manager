@@ -5,15 +5,15 @@ export const getPositionType = (terminal: TerminalType, position: string): Posit
   const posNum = parseInt(position, 10);
   
   if (terminal === 'T1') {
+    if (posNum === 39 || posNum === 46) return 'Carosello';
     if ((posNum >= 1 && posNum <= 11) || (posNum >= 40 && posNum <= 48)) return 'Scivolo';
-    if (posNum === 39 || posNum === 46) return 'Nastro';
-    return 'Nastro';
+    return 'Baia';
   } else {
     // T3
     const t3Scivoli = [14, 16, 18, 20, 22, 24, 26, 28, 32, 34, 36, 38, 40, 42]; // Even 14-42 excl 30
     if (t3Scivoli.includes(posNum)) return 'Scivolo';
-    if ([6, 8, 10, 12].includes(posNum)) return 'Nastro';
-    return 'Nastro';
+    if ([6, 8, 10, 12].includes(posNum)) return 'Carosello';
+    return 'Baia';
   }
 };
 
@@ -86,6 +86,9 @@ export const TRANSLATIONS = {
     italian: 'Italiano',
     english: 'Inglese',
     all: 'TUTTI',
+    scivoli: 'SCIVOLI',
+    caroselli: 'CAROSELLI',
+    baie: 'BAIE',
     shift: 'Turno',
     shiftStart: 'Inizio',
     shiftEnd: 'Fine',
@@ -122,7 +125,8 @@ export const TRANSLATIONS = {
     parsedFlights: 'Voli estratti',
     parsedFlightsHint: 'Filtra o deseleziona tutto quello che non vuoi aggiungere.',
     onlyScivoli: 'Solo Scivoli',
-    onlyNastri: 'Solo Nastri',
+    onlyCaroselli: 'Solo Caroselli',
+    onlyBaie: 'Solo Baie',
     none: 'Nessuno',
     noCompleteFlightsParsed: 'Nessun volo completo estratto. Prova un\'immagine più dritta con le righe complete visibili.',
     noFlightsMatchTypeFilter: 'Nessun volo estratto corrisponde a questo filtro.',
@@ -137,7 +141,7 @@ export const TRANSLATIONS = {
     completeRequiredFieldsHint: 'Completa i campi necessari nei voli selezionati prima di aggiungerli.',
     flightNumberLabel: 'Volo',
     destinationLabel: 'Destinazione',
-    positionLabel: 'Baia / Nastro',
+    positionLabel: 'Baia / Carosello',
     baggageDetails: 'Dettagli bagagli',
     locali: 'Locali',
     transiti: 'Transiti',
@@ -187,6 +191,9 @@ export const TRANSLATIONS = {
     italian: 'Italian',
     english: 'English',
     all: 'ALL',
+    scivoli: 'SLIDES',
+    caroselli: 'BELTS',
+    baie: 'BAYS',
     shift: 'Shift',
     shiftStart: 'Start',
     shiftEnd: 'End',
@@ -223,7 +230,8 @@ export const TRANSLATIONS = {
     parsedFlights: 'Parsed Flights',
     parsedFlightsHint: 'Filter or uncheck anything you do not want to add.',
     onlyScivoli: 'Only Scivoli',
-    onlyNastri: 'Only Nastri',
+    onlyCaroselli: 'Only Belts',
+    onlyBaie: 'Only Bays',
     none: 'None',
     noCompleteFlightsParsed: 'No complete flights were parsed. Try a straighter image with full rows visible.',
     noFlightsMatchTypeFilter: 'No parsed flights match this type filter.',

@@ -1,7 +1,7 @@
 
 export type TerminalType = 'T1' | 'T3';
 
-export type PositionType = 'Scivolo' | 'Nastro';
+export type PositionType = 'Scivolo' | 'Carosello' | 'Baia';
 
 export interface Flight {
   id: string;
@@ -36,7 +36,7 @@ export interface AppState {
   flights: Flight[];
   language: 'it' | 'en';
   showPast: boolean;
-  filterType: PositionType | 'All';
+  filterTypes: PositionType[];
   searchQuery: string;
   showFocusOnly: boolean;
   showMockFlights: boolean;

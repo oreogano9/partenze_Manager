@@ -42,16 +42,16 @@ export const generateICS = async (flights: Flight[]): Promise<string> => {
     const positionLabel = f.position.trim() || 'X';
     const destinationName = await getIataCityName(f.destination, 'it');
     const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
-    
-    const formatDate = (date: Date) => {
-      return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-    };
+
+    const formatUtcDate = (date: Date) => date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const formatRomeLocalDate = (date: Date) =>
+      `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
 
     return `BEGIN:VEVENT
 UID:${f.id}@flight-tracker
-DTSTAMP:${formatDate(new Date())}
-DTSTART:${formatDate(startDate)}
-DTEND:${formatDate(endDate)}
+DTSTAMP:${formatUtcDate(new Date())}
+DTSTART;TZID=Europe/Rome:${formatRomeLocalDate(startDate)}
+DTEND;TZID=Europe/Rome:${formatRomeLocalDate(endDate)}
 SUMMARY:${positionLabel} - ${f.destination} - ${f.flightNumber}
 DESCRIPTION:${[destinationName, containerDetails].filter(Boolean).join('\\n')}
 END:VEVENT`;
@@ -60,6 +60,8 @@ END:VEVENT`;
   return `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Flight Tracker//EN
+CALSCALE:GREGORIAN
+X-WR-TIMEZONE:Europe/Rome
 ${events.join('\n')}
 END:VCALENDAR`;
 };
