@@ -41,6 +41,7 @@ const commonAirportMap = new Map(
 
 let fullAirportMapPromise: Promise<Map<string, AirportEntry>> | null = null;
 let overlayAirportMapPromise: Promise<Map<string, AirportEntry>> | null = null;
+let combinedAirportMapPromise: Promise<Map<string, AirportEntry>> | null = null;
 
 const toCityName = (entry: AirportEntry | undefined, language: 'it' | 'en') => {
   if (!entry) {
@@ -79,6 +80,19 @@ const loadOverlayAirportMap = async () => {
   return overlayAirportMapPromise;
 };
 
+const loadCombinedAirportMap = async () => {
+  if (!combinedAirportMapPromise) {
+    combinedAirportMapPromise = Promise.all([loadFullAirportMap(), loadOverlayAirportMap()]).then(
+      ([fullAirportMap, overlayAirportMap]) => new Map<string, AirportEntry>([
+        ...overlayAirportMap,
+        ...fullAirportMap,
+      ]),
+    );
+  }
+
+  return combinedAirportMapPromise;
+};
+
 export const getIataCityName = async (iata: string, language: 'it' | 'en') => {
   const code = iata.trim().toUpperCase();
   const commonName = toCityName(commonAirportMap.get(code), language);
@@ -86,12 +100,6 @@ export const getIataCityName = async (iata: string, language: 'it' | 'en') => {
     return commonName;
   }
 
-  const fullAirportMap = await loadFullAirportMap();
-  const fullName = toCityName(fullAirportMap.get(code), language);
-  if (fullName) {
-    return fullName;
-  }
-
-  const overlayAirportMap = await loadOverlayAirportMap();
-  return toCityName(overlayAirportMap.get(code), language);
+  const combinedAirportMap = await loadCombinedAirportMap();
+  return toCityName(combinedAirportMap.get(code), language);
 };
