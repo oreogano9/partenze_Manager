@@ -53,11 +53,26 @@ const normalizeTime = (value: string) => {
   return `${hours}:${minutes}`;
 };
 
+const getRomeDateParts = () => {
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+
+  return { year, month, day };
+};
+
 const buildISODate = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number);
-  const date = new Date();
-  date.setHours(hours, minutes, 0, 0);
-  return date.toISOString();
+  const { year, month, day } = getRomeDateParts();
+  return `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
 };
 
 const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): TerminalType => {
