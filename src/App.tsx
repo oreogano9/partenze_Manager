@@ -13,7 +13,12 @@ import { motion, AnimatePresence } from 'motion/react';
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
-type MergeStatus = 'new' | 'update';
+type MergeStatus = 'new' | 'update' | 'unchanged';
+type MergeField = 'flightNumber' | 'destination' | 'std' | 'position';
+type OCRMergeInfo = {
+  status: MergeStatus;
+  changedFields: Set<MergeField>;
+};
 type OcrSelectionPreset = 'All' | 'None' | PositionType;
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
 type PersistedState = {
@@ -29,7 +34,7 @@ type OCRPreviewCardProps = {
   onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
   t: any;
   language: 'it' | 'en';
-  mergeStatus: MergeStatus;
+  mergeInfo: OCRMergeInfo;
   canImport: boolean;
 };
 
@@ -167,6 +172,56 @@ const findMatchingFlightIndex = <T extends Pick<Flight, 'flightNumber' | 'destin
   }
 
   return flights.findIndex((flight) => getFlightCodeOnlyKey(flight) === codeKey);
+};
+
+const findMatchingFlight = (
+  flights: Flight[],
+  incoming: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal'> & { sourceType?: OCRSourceType },
+) => {
+  const exactKey = getFlightMatchKey(incoming);
+  const exactMatch = flights.find((flight) => getFlightMatchKey(flight) === exactKey);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const codeKey = getFlightCodeOnlyKey(incoming);
+  if (!codeKey) {
+    return null;
+  }
+
+  return flights.find((flight) => getFlightCodeOnlyKey(flight) === codeKey) ?? null;
+};
+
+const getComparableStd = (std: string) => {
+  const date = new Date(std);
+  return Number.isNaN(date.getTime()) ? std : formatHHmm(std);
+};
+
+const getOcrMergeInfo = (flight: OCRReviewFlight, existingFlights: Flight[]): OCRMergeInfo => {
+  const existingFlight = findMatchingFlight(existingFlights, flight);
+  if (!existingFlight) {
+    return { status: 'new', changedFields: new Set() };
+  }
+
+  const changedFields = new Set<MergeField>();
+
+  if (normalizeFlightCode(flight.flightNumber) !== normalizeFlightCode(existingFlight.flightNumber)) {
+    changedFields.add('flightNumber');
+  }
+  if (flight.destination.trim() && flight.destination.trim().toUpperCase() !== existingFlight.destination.trim().toUpperCase()) {
+    changedFields.add('destination');
+  }
+  if (flight.position.trim() && flight.position.trim().toUpperCase() !== existingFlight.position.trim().toUpperCase()) {
+    changedFields.add('position');
+  }
+  if (getComparableStd(flight.std) !== getComparableStd(existingFlight.std)) {
+    changedFields.add('std');
+  }
+
+  return {
+    status: changedFields.size === 0 ? 'unchanged' : 'update',
+    changedFields,
+  };
 };
 
 const canImportOcrFlight = (flight: OCRReviewFlight, existingFlights: Flight[]) => {
@@ -349,13 +404,14 @@ const loadPersistedState = (): PersistedState => {
   }
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeStatus, canImport}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeInfo, canImport}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
   const urgencyColor = getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
   const posType = getPositionType(flight.terminal, flight.position);
+  const { status: mergeStatus, changedFields } = mergeInfo;
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = 'text-white/40';
 
@@ -373,23 +429,31 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
   return (
     <motion.div
       layout
-      className={`rounded-xl border shadow-lg relative overflow-visible ${flight.selected ? 'border-emerald-500/20 bg-[#1a1a1a]' : 'border-white/8 bg-[#141414] opacity-70'} ${isExpanded ? 'z-30' : 'z-0'}`}
+      className={`rounded-xl border shadow-lg relative overflow-visible ${
+        mergeStatus === 'unchanged'
+          ? 'border-pink-400/25 bg-[#1a1a1a]'
+          : flight.selected
+            ? 'border-emerald-500/20 bg-[#1a1a1a]'
+            : 'border-white/8 bg-[#141414] opacity-70'
+      } ${isExpanded ? 'z-30' : 'z-0'}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <div className="p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer" onClick={() => setIsExpanded(prev => !prev)}>
+      <div className="p-4 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-4 flex-1 min-w-0 cursor-pointer" onClick={() => setIsExpanded(prev => !prev)}>
           <div
-            className="w-16 h-16 rounded-lg flex flex-col items-center justify-center text-white font-bold shadow-lg shrink-0"
+            className={`w-16 h-16 rounded-lg flex flex-col items-center justify-center text-white font-bold shadow-lg shrink-0 ${
+              changedFields.has('position') ? 'ring-2 ring-amber-300/80 ring-offset-2 ring-offset-[#1a1a1a]' : ''
+            }`}
             style={{ backgroundColor: urgencyColor }}
           >
             <span className="text-2xl leading-none">{flight.position || 'X'}</span>
-            <span className="text-[14px] font-black uppercase mt-0.5">{flight.destination}</span>
+            <span className={`text-[14px] font-black uppercase mt-0.5 ${changedFields.has('destination') ? 'text-amber-100' : ''}`}>{flight.destination}</span>
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`font-bold text-[15px] leading-tight ${changedFields.has('flightNumber') ? 'text-amber-200' : 'text-white'} break-words`}>{flight.flightNumber}</span>
               {!canImport && (
                 <span className="rounded-full border border-amber-400/20 bg-amber-500/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-100">
                   {t.requiredFieldsMissing}
@@ -402,25 +466,27 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
               )}
               <span
                 className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                  mergeStatus === 'update'
+                  mergeStatus === 'unchanged'
+                    ? 'border border-pink-400/30 bg-pink-500/15 text-pink-200'
+                    : mergeStatus === 'update'
                     ? 'border border-blue-400/20 bg-blue-500/15 text-blue-200'
                     : 'border border-emerald-400/20 bg-emerald-500/15 text-emerald-200'
                 }`}
               >
-                {mergeStatus === 'update' ? t.updatesExisting : t.newFlight}
+                {mergeStatus === 'unchanged' ? t.alreadyPresent : mergeStatus === 'update' ? t.updatesExisting : t.newFlight}
               </span>
             </div>
 
             {(flight.fc || flight.richiesta || flight.tot) && !isExpanded && (
-              <div className="mt-0.5 text-[9px] leading-tight max-w-[180px] truncate whitespace-nowrap">
+              <div className="mt-1 text-[9px] leading-tight break-words">
                 {flight.fc && <span className="text-white/70 font-black mr-1.5">{flight.fc}</span>}
                 {flight.richiesta && <span className="text-white/60 font-medium italic mr-1.5">{flight.richiesta}</span>}
                 {flight.tot && <span className="text-white/30 font-bold">{flight.tot}</span>}
               </div>
             )}
 
-            <div className="flex items-center gap-4 mt-1 text-[9px] text-white/50">
-              <div className="flex items-center gap-1">
+            <div className="mt-2 flex items-center gap-4 text-[10px] text-white/50">
+              <div className={`flex items-center gap-1 rounded-md px-1.5 py-1 ${changedFields.has('std') ? 'bg-amber-500/10 text-amber-200' : ''}`}>
                 <ClockIcon size={10} />
                 <span>STD: {formatHHmm(flight.std)}</span>
               </div>
@@ -1080,14 +1146,6 @@ export default function App() {
   const ocrFixFlight = ocrReview && ocrFixFlightId
     ? ocrReview.flights.find((flight) => flight.id === ocrFixFlightId) ?? null
     : null;
-  const existingBoardFlightKeys = useMemo(
-    () => new Set(state.flights.map((flight) => getFlightMatchKey(flight))),
-    [state.flights],
-  );
-  const existingBoardFlightCodes = useMemo(
-    () => new Set(state.flights.map((flight) => getFlightCodeOnlyKey(flight))),
-    [state.flights],
-  );
   const visibleOcrFlights = ocrReview
     ? ocrReview.flights
       .filter((flight) => (
@@ -1095,6 +1153,10 @@ export default function App() {
       ))
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
     : [];
+  const ocrMergeInfoById = useMemo(
+    () => new Map((ocrReview?.flights ?? []).map((flight) => [flight.id, getOcrMergeInfo(flight, state.flights)])),
+    [ocrReview, state.flights],
+  );
 
   const togglePositionTypeFilter = (type: PositionType) => {
     setState((prev) => {
@@ -1776,7 +1838,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 20, scale: 0.98 }}
-                className="flex h-[90vh] w-full max-w-6xl flex-col gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl"
+                className="flex h-[92vh] w-full max-w-7xl flex-col gap-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#111111] p-4 shadow-2xl"
               >
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/5 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
@@ -1835,7 +1897,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="hidden min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid lg:grid-cols-[0.85fr_1.15fr]">
+                  <div className="hidden min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid lg:grid-cols-[minmax(280px,0.68fr)_minmax(0,1.32fr)]">
                     <div className="space-y-3">
                       {latestOcrPreview && (
                         <img
@@ -1955,7 +2017,7 @@ export default function App() {
                               onFieldChange={updateOcrCandidateField}
                               t={t}
                               language={state.language}
-                              mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) || existingBoardFlightCodes.has(getFlightCodeOnlyKey(flight)) ? 'update' : 'new'}
+                              mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set() }}
                               canImport={canImportOcrFlight(flight, state.flights)}
                             />
                           ))}
@@ -2049,7 +2111,7 @@ export default function App() {
                                   onFieldChange={updateOcrCandidateField}
                                   t={t}
                                   language={state.language}
-                                  mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) || existingBoardFlightCodes.has(getFlightCodeOnlyKey(flight)) ? 'update' : 'new'}
+                                  mergeInfo={ocrMergeInfoById.get(flight.id) ?? { status: 'new', changedFields: new Set() }}
                                   canImport={canImportOcrFlight(flight, state.flights)}
                                 />
                               ))}
