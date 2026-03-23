@@ -87,6 +87,16 @@ const getBadgeClasses = (value: string) => {
   return 'border-amber-400/15 bg-amber-500/10 text-amber-200';
 };
 
+const getBadgeLabel = (value: string, language: 'it' | 'en') => {
+  const token = value.trim().toUpperCase();
+
+  if (token === 'CARR') {
+    return language === 'it' ? 'CARR - Priority dedicato' : 'CARR - Dedicated priority';
+  }
+
+  return token;
+};
+
 const IATA_PATTERN = /\b[A-Z]{3}\b/g;
 
 const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ note, language }) => {
@@ -245,7 +255,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                       key={badge}
                       className={`rounded-lg border px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide ${getBadgeClasses(badge)}`}
                     >
-                      {badge}
+                      {getBadgeLabel(badge, language)}
                     </span>
                   ))}
                 </div>
