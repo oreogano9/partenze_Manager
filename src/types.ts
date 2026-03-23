@@ -2,10 +2,13 @@
 export type TerminalType = 'T1' | 'T3';
 
 export type PositionType = 'Scivolo' | 'Carosello' | 'Baia';
+export type OCRSourceType = 'sheet' | 'bay_screen';
 
 export interface Flight {
   id: string;
   importedAt?: string;
+  calendarExportedAt?: string;
+  calendarExportFingerprint?: string;
   carrier?: string;
   flightNumberNumeric?: string;
   flightNumber: string;
@@ -25,11 +28,13 @@ export interface OCRFlightCandidate extends Flight {
   sourceLine: string;
   confidence: number;
   crossedOut?: boolean;
+  sourceType?: OCRSourceType;
 }
 
 export interface OCRExtractionResult {
   flights: OCRFlightCandidate[];
   text: string;
+  sourceType: OCRSourceType;
 }
 
 export interface AppState {

@@ -120,7 +120,6 @@ export const extractFlightsFromImage = async (
     const imageUrl = await uploadImageToBlob(optimizedImage, onProgress);
     onProgress?.(0.65);
 
-    const formData = new FormData();
     const response = await fetch('/api/extract-flights', {
       method: 'POST',
       headers: {

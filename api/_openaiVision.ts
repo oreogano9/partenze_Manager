@@ -1,4 +1,4 @@
-import type {OCRExtractionResult, OCRFlightCandidate, TerminalType} from '../src/types';
+import type {OCRExtractionResult, OCRFlightCandidate, OCRSourceType, TerminalType} from '../src/types';
 
 type RawFlight = {
   carrier?: unknown;
@@ -16,6 +16,7 @@ type RawFlight = {
   anomaly?: unknown;
   bag?: unknown;
   crossedOut?: unknown;
+  sourceType?: unknown;
 };
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -25,14 +26,24 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 const asBoolean = (value: unknown) => value === true;
+const normalizeSourceType = (value: unknown): OCRSourceType =>
+  value === 'bay_screen' ? 'bay_screen' : 'sheet';
+const normalizeFlightCodeFormat = (value: string) => {
+  const compact = value.toUpperCase().trim().replace(/[\s-]+/g, '');
+  const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
+  if (!match) {
+    return value.toUpperCase().trim().replace(/\s+/g, ' ');
+  }
+  return `${match[1]} ${match[2]}`;
+};
 
 const normalizeFlightNumber = (raw: RawFlight) => {
-  const directFlightNumber = asString(raw.flightNumber).toUpperCase();
+  const directFlightNumber = normalizeFlightCodeFormat(asString(raw.flightNumber));
   if (directFlightNumber) {
     return directFlightNumber;
   }
 
-  const carrier = asString(raw.carrier).toUpperCase();
+  const carrier = asString(raw.carrier).toUpperCase().replace(/[^A-Z0-9]/g, '');
   const numeric = asString(raw.flightNumberNumeric).toUpperCase();
 
   if (!carrier || !numeric) {
@@ -85,14 +96,19 @@ const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): Ter
   return preferredTerminal || 'T1';
 };
 
-const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: TerminalType): OCRFlightCandidate | null => {
+const normalizeFlight = (
+  raw: RawFlight,
+  index: number,
+  sourceType: OCRSourceType,
+  preferredTerminal?: TerminalType,
+): OCRFlightCandidate | null => {
   const carrier = asString(raw.carrier).toUpperCase();
   const flightNumberNumeric = asString(raw.flightNumberNumeric).toUpperCase();
   const flightNumber = normalizeFlightNumber(raw);
   const destination = asString(raw.destination).toUpperCase();
   const hhmm = normalizeTime(asString(raw.std));
 
-  if (!flightNumber || !destination || !hhmm) {
+  if (!flightNumber || !hhmm || (sourceType === 'sheet' && !destination)) {
     return null;
   }
 
@@ -117,17 +133,22 @@ const normalizeFlight = (raw: RawFlight, index: number, preferredTerminal?: Term
     sourceLine: asString(raw.sourceLine),
     confidence: Number(confidence.toFixed(2)),
     crossedOut: asBoolean(raw.crossedOut) || undefined,
+    sourceType,
   };
 };
 
 const normalizeResponse = (payload: unknown, preferredTerminal?: TerminalType): OCRExtractionResult => {
-  const object = payload && typeof payload === 'object' ? (payload as {text?: unknown; flights?: unknown}) : {};
+  const object = payload && typeof payload === 'object'
+    ? (payload as {text?: unknown; flights?: unknown; sourceType?: unknown})
+    : {};
   const rawFlights = Array.isArray(object.flights) ? (object.flights as RawFlight[]) : [];
+  const sourceType = normalizeSourceType(object.sourceType);
 
   return {
+    sourceType,
     text: asString(object.text),
     flights: rawFlights
-      .map((flight, index) => normalizeFlight(flight, index, preferredTerminal))
+      .map((flight, index) => normalizeFlight(flight, index, sourceType, preferredTerminal))
       .filter((flight): flight is OCRFlightCandidate => Boolean(flight)),
   };
 };
@@ -171,7 +192,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
         {
           role: 'system',
           content:
-            'You extract flight rows from airport operation sheets. Return JSON only with shape {"text":"best effort raw transcription","flights":[{"carrier":"","flightNumberNumeric":"","flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","anomaly":"","bag":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. If the sheet has separate CARR and FLT.N columns, extract both and also return flightNumber combined with a space, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Treat the long central request column as the requested container mix/instructions and preserve it verbatim in richiesta. Do not move that full request text into fc. Use fc only for the dedicated FC column when it is actually filled or clearly visible as its own value. Preserve TOT, ANOMALIA, and BAG from their own columns when visible. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
+            'You extract flight rows from either airport operation sheets or live bay-screen monitors. Return JSON only with shape {"sourceType":"sheet or bay_screen","text":"best effort raw transcription","flights":[{"carrier":"","flightNumberNumeric":"","flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","anomaly":"","bag":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. Detect whether the image is a paper sheet or a live bay-screen monitor and set sourceType accordingly. If the image is a bay screen, extract only flight code, destination if visible, bay/position, and departure time. Ignore baggage opening time, luggage counters, and other status metrics. If the sheet has separate CARR and FLT.N columns, extract both and also return flightNumber combined with a space, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Treat the long central request column as the requested container mix/instructions and preserve it verbatim in richiesta. Do not move that full request text into fc. Use fc only for the dedicated FC column when it is actually filled or clearly visible as its own value. Preserve TOT, ANOMALIA, and BAG from their own columns when visible. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
         },
         {
           role: 'user',
@@ -179,7 +200,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". Many sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. This sheet should be treated as terminal ${preferredTerminal || 'T1'} unless the image clearly says otherwise.`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Normalize flight numbers so forms like "FC2355", "FC 2355", and "FC-2355" all resolve to the same flight code value "FC 2355". Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". If this is a live bay screen, use the screen header bay as position for all rows when appropriate, keep only flight code, destination if visible, bay/position, and the repeated departure time column, and ignore baggage-opening times and luggage counters. Many paper sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. This image should be treated as terminal ${preferredTerminal || 'T1'} unless it clearly says otherwise.`,
             },
             {
               type: 'image_url',

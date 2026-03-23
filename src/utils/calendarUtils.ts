@@ -1,6 +1,10 @@
 import { Flight } from '../types';
 import { getIataCityName } from './iataLookup';
 
+type CalendarExportOptions = {
+  updatedFlightIds?: Set<string>;
+};
+
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -35,11 +39,26 @@ const isTomorrow = (date: Date) => {
   );
 };
 
-export const generateICS = async (flights: Flight[]): Promise<string> => {
+const getCalendarSummary = (flight: Flight, updatedFlightIds?: Set<string>) => {
+  const positionLabel = flight.position.trim() || 'X';
+  const baseSummary = `${positionLabel} - ${flight.destination} - ${flight.flightNumber}`;
+  return updatedFlightIds?.has(flight.id) ? `*${baseSummary}` : baseSummary;
+};
+
+export const getCalendarExportFingerprint = (flight: Flight) =>
+  JSON.stringify({
+    flightNumber: flight.flightNumber.trim().toUpperCase(),
+    destination: flight.destination.trim().toUpperCase(),
+    position: flight.position.trim().toUpperCase(),
+    std: flight.std,
+    richiesta: flight.richiesta?.trim() ?? '',
+    tot: flight.tot?.trim() ?? '',
+  });
+
+export const generateICS = async (flights: Flight[], options: CalendarExportOptions = {}): Promise<string> => {
   const events = await Promise.all(flights.map(async (f) => {
     const endDate = new Date(f.std);
     const startDate = new Date(endDate.getTime() - 40 * 60000);
-    const positionLabel = f.position.trim() || 'X';
     const destinationName = await getIataCityName(f.destination, 'it');
     const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
 
@@ -52,7 +71,7 @@ UID:${f.id}@flight-tracker
 DTSTAMP:${formatUtcDate(new Date())}
 DTSTART;TZID=Europe/Rome:${formatRomeLocalDate(startDate)}
 DTEND;TZID=Europe/Rome:${formatRomeLocalDate(endDate)}
-SUMMARY:${positionLabel} - ${f.destination} - ${f.flightNumber}
+SUMMARY:${getCalendarSummary(f, options.updatedFlightIds)}
 DESCRIPTION:${[destinationName, containerDetails].filter(Boolean).join('\\n')}
 END:VEVENT`;
   }));
@@ -66,8 +85,8 @@ ${events.join('\n')}
 END:VCALENDAR`;
 };
 
-export const downloadICS = async (flights: Flight[]) => {
-  const content = await generateICS(flights);
+export const downloadICS = async (flights: Flight[], options: CalendarExportOptions = {}) => {
+  const content = await generateICS(flights, options);
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -76,34 +95,34 @@ export const downloadICS = async (flights: Flight[]) => {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  return true;
 };
 
-export const formatFlightForClipboard = async (flight: Flight): Promise<string> => {
+export const formatFlightForClipboard = async (flight: Flight, options: CalendarExportOptions = {}): Promise<string> => {
   const endDate = new Date(flight.std);
   const startDate = new Date(endDate.getTime() - 40 * 60000);
   const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
-  const positionLabel = flight.position.trim() || 'X';
   const destinationName = await getIataCityName(flight.destination, 'it');
   const containerDetails = [flight.richiesta, flight.tot].filter(Boolean).join(' | ');
   const description = [destinationName, containerDetails].filter(Boolean).join(' ');
 
   return [
-    `Event title: ${positionLabel} - ${flight.destination} - ${flight.flightNumber} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,
+    `Event title: ${getCalendarSummary(flight, options.updatedFlightIds)} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,
     description ? `Event Description: ${description}` : '',
   ].filter(Boolean).join('\n');
 };
 
-export const formatFlightsForClipboard = async (flights: Flight[]): Promise<string> => {
+export const formatFlightsForClipboard = async (flights: Flight[], options: CalendarExportOptions = {}): Promise<string> => {
   if (flights.length === 0) {
     return '';
   }
 
-  const formattedFlights = await Promise.all(flights.map(formatFlightForClipboard));
+  const formattedFlights = await Promise.all(flights.map((flight) => formatFlightForClipboard(flight, options)));
   return formattedFlights.join('\n\n');
 };
 
-export const copyFlightsToClipboard = async (flights: Flight[]) => {
-  const content = await formatFlightsForClipboard(flights);
+export const copyFlightsToClipboard = async (flights: Flight[], options: CalendarExportOptions = {}) => {
+  const content = await formatFlightsForClipboard(flights, options);
   if (!content) {
     return false;
   }

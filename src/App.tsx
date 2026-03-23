@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Flight, OCRFlightCandidate, PositionType } from './types';
+import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType } from './types';
 import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
-import { copyFlightsToClipboard, downloadICS } from './utils/calendarUtils';
+import { copyFlightsToClipboard, downloadICS, getCalendarExportFingerprint } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
 import { getIataSearchIndex } from './utils/iataLookup';
 import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
@@ -30,6 +30,7 @@ type OCRPreviewCardProps = {
   t: any;
   language: 'it' | 'en';
   mergeStatus: MergeStatus;
+  canImport: boolean;
 };
 
 type OcrRequiredField = 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position';
@@ -42,6 +43,17 @@ type OCRFixModalProps = {
   t: any;
 };
 
+const normalizeFlightCode = (value: string) => {
+  const compact = value.toUpperCase().trim().replace(/[\s-]+/g, '');
+  const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
+  if (!match) {
+    return value.toUpperCase().trim().replace(/\s+/g, ' ');
+  }
+  return `${match[1]} ${match[2]}`;
+};
+
+const getFlightCodeKey = (flightNumber: string) => normalizeFlightCode(flightNumber).replace(/\s+/g, '');
+
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
 const isUnassignedPosition = (position: string) => {
   const normalized = position.trim();
@@ -50,7 +62,7 @@ const isUnassignedPosition = (position: string) => {
 const hasValidRequiredPosition = (position: string) => Boolean(position.trim() || isUnassignedPosition(position));
 const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>) =>
   Boolean(
-    flight.flightNumber.trim() &&
+    getFlightCodeKey(flight.flightNumber) &&
     flight.destination.trim() &&
     hasValidRequiredPosition(flight.position) &&
     (flight.terminal === 'T1' || flight.terminal === 'T3') &&
@@ -58,7 +70,7 @@ const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination'
   );
 
 const getFirstMissingOcrField = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>): OcrRequiredField | null => {
-  if (!flight.flightNumber.trim()) return 'flightNumber';
+  if (!getFlightCodeKey(flight.flightNumber)) return 'flightNumber';
   if (!flight.destination.trim()) return 'destination';
   if (!isValidOcrStd(flight.std)) return 'std';
   if (!(flight.terminal === 'T1' || flight.terminal === 'T3')) return 'terminal';
@@ -88,13 +100,15 @@ const getFlightMatchKey = (flight: Pick<Flight, 'flightNumber' | 'destination' |
   const localDay = Number.isNaN(date.getTime()) ? flight.std.slice(0, 10) : date.toLocaleDateString('sv-SE');
   const time = Number.isNaN(date.getTime()) ? flight.std : formatHHmm(flight.std);
   return [
-    flight.flightNumber.trim().toUpperCase(),
+    normalizeFlightCode(flight.flightNumber),
     flight.destination.trim().toUpperCase(),
     flight.terminal.trim().toUpperCase(),
     localDay,
     time,
   ].join('|');
 };
+
+const getFlightCodeOnlyKey = (flight: Pick<Flight, 'flightNumber'>) => getFlightCodeKey(flight.flightNumber);
 
 const pickPreferredValue = (current?: string, incoming?: string) => {
   const currentValue = current?.trim() ?? '';
@@ -110,8 +124,14 @@ const pickPreferredValue = (current?: string, incoming?: string) => {
 const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => ({
   ...base,
   importedAt: base.importedAt || incoming.importedAt,
+  calendarExportedAt: base.calendarExportedAt,
+  calendarExportFingerprint: base.calendarExportFingerprint,
   carrier: pickPreferredValue(base.carrier, incoming.carrier) || undefined,
   flightNumberNumeric: pickPreferredValue(base.flightNumberNumeric, incoming.flightNumberNumeric) || undefined,
+  flightNumber: normalizeFlightCode(pickPreferredValue(base.flightNumber, incoming.flightNumber) || base.flightNumber),
+  destination: pickPreferredValue(base.destination, incoming.destination) || base.destination,
+  std: incoming.std?.trim() ? incoming.std : base.std,
+  terminal: incoming.terminal || base.terminal,
   position: pickPreferredValue(base.position, incoming.position) || base.position,
   fc: pickPreferredValue(base.fc, incoming.fc) || undefined,
   richiesta: pickPreferredValue(base.richiesta, incoming.richiesta) || undefined,
@@ -120,16 +140,49 @@ const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => 
   bag: pickPreferredValue(base.bag, incoming.bag) || undefined,
 });
 
+const findMatchingFlightIndex = <T extends Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal'> & { sourceType?: OCRSourceType }>(
+  flights: T[],
+  incoming: T,
+) => {
+  const exactKey = getFlightMatchKey(incoming);
+  const exactIndex = flights.findIndex((flight) => getFlightMatchKey(flight) === exactKey);
+  if (exactIndex !== -1) {
+    return exactIndex;
+  }
+
+  const codeKey = getFlightCodeOnlyKey(incoming);
+  if (!codeKey) {
+    return -1;
+  }
+
+  return flights.findIndex((flight) => getFlightCodeOnlyKey(flight) === codeKey);
+};
+
+const canImportOcrFlight = (flight: OCRReviewFlight, existingFlights: Flight[]) => {
+  if (isOcrFlightComplete(flight)) {
+    return true;
+  }
+
+  if (flight.sourceType !== 'bay_screen') {
+    return false;
+  }
+
+  return Boolean(
+    getFlightCodeOnlyKey(flight) &&
+    hasValidRequiredPosition(flight.position) &&
+    isValidOcrStd(flight.std) &&
+    (flight.terminal === 'T1' || flight.terminal === 'T3') &&
+    existingFlights.some((existingFlight) => getFlightCodeOnlyKey(existingFlight) === getFlightCodeOnlyKey(flight)),
+  );
+};
+
 const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFlight[]) => {
   const merged = [...existing];
-  const indexByKey = new Map(merged.map((flight, index) => [getFlightMatchKey(flight), index]));
 
   incoming.forEach((flight) => {
-    const matchKey = getFlightMatchKey(flight);
-    const existingIndex = indexByKey.get(matchKey);
+    const existingIndex = findMatchingFlightIndex(merged, flight);
 
-    if (existingIndex === undefined) {
-      indexByKey.set(matchKey, merged.length);
+    if (existingIndex === -1) {
       merged.push(flight);
       return;
     }
@@ -140,6 +193,7 @@ const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFli
       confidence: Math.max(current.confidence, flight.confidence),
       sourceLine: pickPreferredValue(current.sourceLine, flight.sourceLine),
       crossedOut: current.crossedOut || flight.crossedOut || undefined,
+      sourceType: current.sourceType || flight.sourceType,
       selected: current.selected && !flight.crossedOut,
     };
   });
@@ -149,14 +203,11 @@ const mergeOcrFlightLists = (existing: OCRReviewFlight[], incoming: OCRReviewFli
 
 const mergeIntoBoardFlights = (existingFlights: Flight[], incomingFlights: OCRReviewFlight[]) => {
   const mergedFlights = [...existingFlights];
-  const indexByKey = new Map(mergedFlights.map((flight, index) => [getFlightMatchKey(flight), index]));
 
   incomingFlights.forEach((flight) => {
-    const matchKey = getFlightMatchKey(flight);
-    const existingIndex = indexByKey.get(matchKey);
+    const existingIndex = findMatchingFlightIndex(mergedFlights, flight);
 
-    if (existingIndex === undefined) {
-      indexByKey.set(matchKey, mergedFlights.length);
+    if (existingIndex === -1) {
       mergedFlights.push(flight);
       return;
     }
@@ -259,7 +310,11 @@ const loadPersistedState = (): PersistedState => {
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    const persistedFlights = pruneExpiredImportedFlights(parsed.appState?.flights ?? DEFAULT_APP_STATE.flights);
+    const persistedFlights = pruneExpiredImportedFlights(parsed.appState?.flights ?? DEFAULT_APP_STATE.flights)
+      .map((flight) => ({
+        ...flight,
+        flightNumber: normalizeFlightCode(flight.flightNumber),
+      }));
     const legacyFilterType = (parsed.appState as AppState & { filterType?: PositionType | 'All' } | undefined)?.filterType;
     const persistedFilterTypes = Array.isArray(parsed.appState?.filterTypes)
       ? parsed.appState.filterTypes.filter((type): type is PositionType => ALL_POSITION_TYPES.includes(type as PositionType))
@@ -283,15 +338,13 @@ const loadPersistedState = (): PersistedState => {
   }
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeStatus}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeStatus, canImport}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
   const urgencyColor = getUrgencyColor(minutesToSTD);
   const stdCountdown = formatDuration(minutesToSTD);
   const posType = getPositionType(flight.terminal, flight.position);
-  const isComplete = isOcrFlightComplete(flight);
-
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = 'text-white/40';
 
@@ -326,7 +379,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-[14px] truncate">{flight.flightNumber}</span>
-              {!isComplete && (
+              {!canImport && (
                 <span className="rounded-full border border-amber-400/20 bg-amber-500/15 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-100">
                   {t.requiredFieldsMissing}
                 </span>
@@ -761,6 +814,10 @@ export default function App() {
             return { ...flight, terminal: value === 'T3' ? 'T3' : 'T1' };
           }
 
+          if (field === 'flightNumber') {
+            return { ...flight, flightNumber: normalizeFlightCode(value) };
+          }
+
           return { ...flight, [field]: value };
         }),
       };
@@ -774,7 +831,7 @@ export default function App() {
       }
       return {
         ...prev,
-        flights: prev.flights.map(flight => ({...flight, selected: selected ? isOcrFlightComplete(flight) : false})),
+        flights: prev.flights.map(flight => ({...flight, selected: selected ? canImportOcrFlight(flight, state.flights) : false})),
       };
     });
     setOcrSelectionPreset(selected ? 'All' : 'None');
@@ -789,7 +846,7 @@ export default function App() {
         ...prev,
         flights: prev.flights.map(flight => ({
           ...flight,
-          selected: getPositionType(flight.terminal, flight.position) === type && isOcrFlightComplete(flight),
+          selected: getPositionType(flight.terminal, flight.position) === type && canImportOcrFlight(flight, state.flights),
         })),
       };
     });
@@ -807,7 +864,7 @@ export default function App() {
       return;
     }
 
-    const firstInvalidFlight = selectedFlights.find((flight) => !isOcrFlightComplete(flight));
+    const firstInvalidFlight = selectedFlights.find((flight) => !canImportOcrFlight(flight, state.flights));
     if (firstInvalidFlight) {
       setOcrError(null);
       setOcrFixFlightId(firstInvalidFlight.id);
@@ -815,7 +872,11 @@ export default function App() {
     }
 
     const importedAt = new Date().toISOString();
-    const finalizedFlights = selectedFlights.map((flight) => ({ ...flight, importedAt }));
+    const finalizedFlights = selectedFlights.map((flight) => ({
+      ...flight,
+      flightNumber: normalizeFlightCode(flight.flightNumber),
+      importedAt,
+    }));
 
     setState(prev => ({
       ...prev,
@@ -848,6 +909,7 @@ export default function App() {
       setOcrReview(prev => {
         const nextFlights = result.flights.map(flight => ({
           ...flight,
+          flightNumber: normalizeFlightCode(flight.flightNumber),
           selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
         }));
 
@@ -886,18 +948,54 @@ export default function App() {
 
   const handleCalendarExport = async (type: 'ics' | 'copy') => {
     if (filteredFlights.length === 0) return;
-    
-    if (type === 'ics') {
-      downloadICS(filteredFlights);
-      setCopyFeedback(null);
-    } else {
-      try {
-        const copied = await copyFlightsToClipboard(filteredFlights);
+
+    const flightsToExport = filteredFlights.filter(
+      (flight) => flight.calendarExportFingerprint !== getCalendarExportFingerprint(flight),
+    );
+    const updatedFlightIds = new Set<string>(
+      flightsToExport
+        .filter((flight) => Boolean(flight.calendarExportFingerprint))
+        .map((flight) => flight.id),
+    );
+
+    if (flightsToExport.length === 0) {
+      setCopyFeedback(t.noCalendarChangesToExport);
+      setShowCalendarMenu(false);
+      return;
+    }
+
+    try {
+      let exportSucceeded = false;
+      if (type === 'ics') {
+        exportSucceeded = await downloadICS(flightsToExport.map((flight) => ({...flight})), {updatedFlightIds});
+        setCopyFeedback(null);
+      } else {
+        const copied = await copyFlightsToClipboard(flightsToExport.map((flight) => ({...flight})), {updatedFlightIds});
+        exportSucceeded = copied;
         setCopyFeedback(copied ? t.copiedEventText : t.clipboardCopyFailed);
-      } catch (error) {
-        console.error('Clipboard copy failed', error);
-        setCopyFeedback(t.clipboardCopyFailed);
       }
+
+      if (!exportSucceeded) {
+        setShowCalendarMenu(false);
+        return;
+      }
+
+      const exportedAt = new Date().toISOString();
+      setState((prev) => ({
+        ...prev,
+        flights: prev.flights.map((flight) => (
+          flightsToExport.some((exportFlight) => exportFlight.id === flight.id)
+            ? {
+                ...flight,
+                calendarExportedAt: exportedAt,
+                calendarExportFingerprint: getCalendarExportFingerprint(flight),
+              }
+            : flight
+        )),
+      }));
+    } catch (error) {
+      console.error(type === 'ics' ? 'ICS export failed' : 'Clipboard copy failed', error);
+      setCopyFeedback(t.clipboardCopyFailed);
     }
     setShowCalendarMenu(false);
   };
@@ -967,12 +1065,16 @@ export default function App() {
   }, [isExtracting]);
 
   const selectedOcrCount = ocrReview ? ocrReview.flights.filter(flight => flight.selected).length : 0;
-  const hasInvalidSelectedOcrFlights = ocrReview ? ocrReview.flights.some(flight => flight.selected && !isOcrFlightComplete(flight)) : false;
+  const hasInvalidSelectedOcrFlights = ocrReview ? ocrReview.flights.some(flight => flight.selected && !canImportOcrFlight(flight, state.flights)) : false;
   const ocrFixFlight = ocrReview && ocrFixFlightId
     ? ocrReview.flights.find((flight) => flight.id === ocrFixFlightId) ?? null
     : null;
   const existingBoardFlightKeys = useMemo(
     () => new Set(state.flights.map((flight) => getFlightMatchKey(flight))),
+    [state.flights],
+  );
+  const existingBoardFlightCodes = useMemo(
+    () => new Set(state.flights.map((flight) => getFlightCodeOnlyKey(flight))),
     [state.flights],
   );
   const visibleOcrFlights = ocrReview
@@ -1010,7 +1112,7 @@ export default function App() {
       const updatedFlights = prev.flights.map((flight) =>
         flight.id === ocrFixFlightId ? { ...flight, selected: false } : flight
       );
-      const nextInvalid = updatedFlights.find((flight) => flight.selected && !isOcrFlightComplete(flight));
+      const nextInvalid = updatedFlights.find((flight) => flight.selected && !canImportOcrFlight(flight, state.flights));
       setOcrFixFlightId(nextInvalid ? nextInvalid.id : null);
 
       return {
@@ -1031,13 +1133,13 @@ export default function App() {
       return;
     }
 
-    if (isOcrFlightComplete(currentFlight)) {
+    if (canImportOcrFlight(currentFlight, state.flights)) {
       const nextInvalid = ocrReview.flights.find(
-        (flight) => flight.selected && flight.id !== currentFlight.id && !isOcrFlightComplete(flight),
+        (flight) => flight.selected && flight.id !== currentFlight.id && !canImportOcrFlight(flight, state.flights),
       );
       setOcrFixFlightId(nextInvalid ? nextInvalid.id : null);
     }
-  }, [ocrReview, ocrFixFlightId]);
+  }, [ocrReview, ocrFixFlightId, state.flights]);
   const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
   const annotatedOcrText = useMemo(() => {
     if (!ocrReview) {
@@ -1842,7 +1944,8 @@ export default function App() {
                               onFieldChange={updateOcrCandidateField}
                               t={t}
                               language={state.language}
-                              mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
+                              mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) || existingBoardFlightCodes.has(getFlightCodeOnlyKey(flight)) ? 'update' : 'new'}
+                              canImport={canImportOcrFlight(flight, state.flights)}
                             />
                           ))}
                           </div>
@@ -1935,7 +2038,8 @@ export default function App() {
                                   onFieldChange={updateOcrCandidateField}
                                   t={t}
                                   language={state.language}
-                                  mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) ? 'update' : 'new'}
+                                  mergeStatus={existingBoardFlightKeys.has(getFlightMatchKey(flight)) || existingBoardFlightCodes.has(getFlightCodeOnlyKey(flight)) ? 'update' : 'new'}
+                                  canImport={canImportOcrFlight(flight, state.flights)}
                                 />
                               ))}
                             </div>
