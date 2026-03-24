@@ -325,12 +325,12 @@ export const FlightCard: React.FC<FlightCardProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
+  const targetCountdown = formatDuration(minutesToTarget);
   const posType = getPositionType(flight.terminal, flight.position);
   
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
   const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
-  const urgencyColor = propUrgencyColor || getUrgencyColor(minutesToSTD);
-  const stdCountdown = formatDuration(minutesToSTD);
+  const urgencyColor = propUrgencyColor || getUrgencyColor(minutesToTarget);
   const [destinationName, setDestinationName] = useState(() => getCommonIataCityName(flight.destination, language));
   
   let statusLabel = `${minutesToTarget}m`;
@@ -444,7 +444,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
             className="text-[18px] font-black tracking-tighter font-mono leading-none" 
             style={{ color: urgencyColor }}
           >
-            {stdCountdown}
+            {targetCountdown}
           </div>
           {isExpanded ? <ChevronUp className="text-white/20" size={18} /> : <ChevronDown className="text-white/20" size={18} />}
         </div>

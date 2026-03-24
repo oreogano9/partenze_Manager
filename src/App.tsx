@@ -410,9 +410,9 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
   const [isExpanded, setIsExpanded] = useState(false);
   const [showChangeDetails, setShowChangeDetails] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
+  const targetCountdown = formatDuration(minutesToTarget);
   const minutesToSTD = Math.floor((new Date(flight.std).getTime() - Date.now()) / 60000);
-  const urgencyColor = getUrgencyColor(minutesToSTD);
-  const stdCountdown = formatDuration(minutesToSTD);
+  const urgencyColor = getUrgencyColor(minutesToTarget);
   const posType = getPositionType(flight.terminal, flight.position);
   const { status: mergeStatus, changedFields, previousFlight } = mergeInfo;
   let statusLabel = `${minutesToTarget}m`;
@@ -549,7 +549,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
             {statusLabel}
           </div>
           <div className="text-[18px] font-black tracking-tighter font-mono leading-none" style={{ color: urgencyColor }}>
-            {stdCountdown}
+            {targetCountdown}
           </div>
           {isExpanded ? <ChevronUp className="text-white/20" size={18} /> : <ChevronDown className="text-white/20" size={18} />}
         </div>

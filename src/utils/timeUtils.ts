@@ -1,45 +1,45 @@
 
 export const getMinutesToTarget = (std: string): number => {
   const stdDate = new Date(std);
-  const targetDate = new Date(stdDate.getTime() - 45 * 60000);
+  const targetDate = new Date(stdDate.getTime() - 40 * 60000);
   const now = new Date();
   return Math.floor((targetDate.getTime() - now.getTime()) / 60000);
 };
 
-export const getUrgencyColor = (minutesToSTD: number): string => {
-  // Grey: Already departed (STD <= 0)
-  // Green: > 90 minutes before STD
-  // Orange: 60 minutes before STD
-  // Red: 40 minutes before STD
+export const getUrgencyColor = (minutesToTarget: number): string => {
+  // Grey: target passed
+  // Green: > 90 minutes before target
+  // Orange: around 60 minutes before target
+  // Red: around 40 minutes before target
   
-  if (minutesToSTD <= 10) {
+  if (minutesToTarget <= 10) {
     return 'hsl(0, 0%, 40%)'; // Grey
   }
   
-  if (minutesToSTD >= 90) {
+  if (minutesToTarget >= 90) {
     return 'hsl(142, 70%, 45%)'; // Green
   }
   
-  if (minutesToSTD < 30) {
+  if (minutesToTarget < 30) {
     // 10 (Grey: hsl(0, 0%, 40%)) -> 30 (Red: hsl(0, 84%, 60%))
-    const ratio = (minutesToSTD - 10) / (30 - 10);
+    const ratio = (minutesToTarget - 10) / (30 - 10);
     const saturation = 84 * ratio;
     const lightness = 40 + 20 * ratio;
     return `hsl(0, ${saturation}%, ${lightness}%)`;
   }
 
-  if (minutesToSTD <= 40) {
+  if (minutesToTarget <= 40) {
     return 'hsl(0, 84%, 60%)'; // Red
   }
   
-  if (minutesToSTD >= 60) {
+  if (minutesToTarget >= 60) {
     // 90 (Green: 142) -> 60 (Orange: 35)
-    const ratio = (minutesToSTD - 60) / (90 - 60);
+    const ratio = (minutesToTarget - 60) / (90 - 60);
     const hue = 35 + (142 - 35) * ratio;
     return `hsl(${hue}, 70%, 45%)`;
   } else {
     // 60 (Orange: 35) -> 40 (Red: 0)
-    const ratio = (minutesToSTD - 40) / (60 - 40);
+    const ratio = (minutesToTarget - 40) / (60 - 40);
     const hue = 0 + (35 - 0) * ratio;
     return `hsl(${hue}, 80%, 50%)`;
   }
