@@ -15,6 +15,19 @@ interface FlightCardExpandedContentProps {
   confidence?: number;
 }
 
+const CODE_LABELS = {
+  BL: { it: 'Locali', en: 'Local' },
+  BT: { it: 'Transiti', en: 'Transit' },
+  BS: { it: 'Short connection', en: 'Short connection' },
+  TF: { it: 'Short connection', en: 'Short connection' },
+  AKH: { it: 'contenitori AKH', en: 'AKH containers' },
+  FC: { it: 'FirstClass', en: 'FirstClass' },
+  CARR: { it: 'priority su carrello dedicato', en: 'priority on dedicated cart' },
+  AS02: { it: 'stampante T1 caroselli e baie', en: 'T1 printer for belts and bays' },
+  AS06: { it: 'stampante T1 scivoli', en: 'T1 printer for slides' },
+  APH: { it: 'stampante T1 baie', en: 'T1 printer for bays' },
+} as const;
+
 const parseContainerRequest = (request?: string) => {
   const raw = request?.trim() ?? '';
   if (!raw) {
@@ -99,7 +112,57 @@ const getBadgeLabel = (value: string, language: 'it' | 'en') => {
 
 const IATA_PATTERN = /\b[A-Z]{3}\b/g;
 
-const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ note, language }) => {
+const explainCompactToken = (value: string, language: 'it' | 'en') => {
+  const token = value.trim().toUpperCase();
+
+  if (token === 'FIRSTCLASS CARR') {
+    return language === 'it' ? 'FirstClass priority su carrello dedicato' : 'FirstClass priority on dedicated cart';
+  }
+
+  if (token in CODE_LABELS) {
+    return CODE_LABELS[token as keyof typeof CODE_LABELS][language];
+  }
+
+  const countCodeMatch = token.match(/^(\d+)(BL|BT|BS|TF|AKH)$/);
+  if (countCodeMatch) {
+    const [, count, code] = countCodeMatch;
+    return `${count} ${CODE_LABELS[code as keyof typeof CODE_LABELS][language]}`;
+  }
+
+  const transitMatch = token.match(/^(\d+)([A-Z]{3}\/[A-Z0-9]+)$/);
+  if (transitMatch) {
+    const [, count, route] = transitMatch;
+    return language === 'it' ? `${count} transito ${route}` : `${count} transit ${route}`;
+  }
+
+  return token;
+};
+
+const ToggleCodeChip: React.FC<{
+  value: string;
+  language: 'it' | 'en';
+  className: string;
+  showExplanation: boolean;
+  onToggle: () => void;
+}> = ({ value, language, className, showExplanation, onToggle }) => {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`${className} text-left transition-all hover:brightness-110`}
+      title={showExplanation ? value : explainCompactToken(value, language)}
+    >
+      {showExplanation ? explainCompactToken(value, language) : value}
+    </button>
+  );
+};
+
+const TransitNotePill: React.FC<{
+  note: string;
+  language: 'it' | 'en';
+  showExplanation: boolean;
+  onToggle: () => void;
+}> = ({ note, language, showExplanation, onToggle }) => {
   const [activeIata, setActiveIata] = useState<string | null>(null);
   const [activeName, setActiveName] = useState('');
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -132,9 +195,13 @@ const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ no
   const matches = Array.from(note.matchAll(IATA_PATTERN)) as RegExpMatchArray[];
   if (matches.length === 0) {
     return (
-      <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80">
-        {note}
-      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80 transition-all hover:bg-white/[0.07]"
+      >
+        {showExplanation ? explainCompactToken(note, language) : note}
+      </button>
     );
   }
 
@@ -180,12 +247,16 @@ const TransitNotePill: React.FC<{ note: string; language: 'it' | 'en' }> = ({ no
     parts.push(<span key="tail">{note.slice(lastIndex)}</span>);
   }
 
-  return (
+    return (
     <div ref={containerRef} className="relative">
-      <div className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80">
-        {parts}
-      </div>
-      {activeIata && (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/80 transition-all hover:bg-white/[0.07]"
+      >
+        {showExplanation ? explainCompactToken(note, language) : parts}
+      </button>
+      {!showExplanation && activeIata && (
         <div className="absolute left-0 top-full z-20 mt-2 min-w-40 rounded-xl border border-white/10 bg-[#161616] px-3 py-2 shadow-2xl">
           <div className="text-[10px] font-bold uppercase tracking-widest text-white/35">{activeIata}</div>
           <div className="mt-1 text-sm font-semibold text-white">{activeName || activeIata}</div>
@@ -203,6 +274,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   confidence,
 }) => {
   const [destinationLocation, setDestinationLocation] = useState('');
+  const [showCodeExplanations, setShowCodeExplanations] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,12 +333,14 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                 <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.locali}</div>
                 <div className="flex flex-wrap gap-2">
                   {uniqueBadges.map((badge) => (
-                    <span
+                    <ToggleCodeChip
                       key={badge}
+                      value={getBadgeLabel(badge, language)}
+                      language={language}
+                      showExplanation={showCodeExplanations}
+                      onToggle={() => setShowCodeExplanations((prev) => !prev)}
                       className={`rounded-lg border px-2.5 py-1 text-xs font-black font-mono uppercase tracking-wide ${getBadgeClasses(badge)}`}
-                    >
-                      {getBadgeLabel(badge, language)}
-                    </span>
+                    />
                   ))}
                 </div>
               </div>
@@ -276,7 +350,13 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                 <div className="mb-2 text-[10px] text-white/35 font-bold uppercase tracking-widest">{t.transiti}</div>
                 <div className="flex flex-wrap gap-2">
                   {parsedRequest.notes.map((note) => (
-                    <TransitNotePill key={note} note={note} language={language} />
+                    <TransitNotePill
+                      key={note}
+                      note={note}
+                      language={language}
+                      showExplanation={showCodeExplanations}
+                      onToggle={() => setShowCodeExplanations((prev) => !prev)}
+                    />
                   ))}
                 </div>
               </div>
@@ -284,12 +364,14 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
             {(printerTags.length > 0 || showDamageCheck || showEmptyCartNote) && (
               <div className="flex flex-wrap gap-2">
                 {printerTags.map((printerTag) => (
-                  <span
+                  <ToggleCodeChip
                     key={`printer-${printerTag}`}
+                    value={printerTag}
+                    language={language}
+                    showExplanation={showCodeExplanations}
+                    onToggle={() => setShowCodeExplanations((prev) => !prev)}
                     className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-cyan-200"
-                  >
-                    {printerTag}
-                  </span>
+                  />
                 ))}
                 {showDamageCheck && (
                   <span className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-amber-100">
