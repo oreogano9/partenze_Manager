@@ -139,7 +139,7 @@ const getCalendarDescription = async (flight: Flight) => {
     transitSegments.length > 0 ? transitSegments.join(' | ') : '',
     flight.fc?.trim() ? `FirstClass ${flight.fc.trim().toUpperCase()}` : '',
     printerTags.length > 0 ? printerTags.join(' | ') : '',
-    requiresDamageCheck ? 'Check danni contenitori' : '',
+    requiresDamageCheck ? 'Controlla danni contenitori' : '',
   ].filter(Boolean);
 
   return lines.join('\n');
