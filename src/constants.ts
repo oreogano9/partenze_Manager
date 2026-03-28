@@ -1,6 +1,12 @@
 
 import { Flight, TerminalType, PositionType } from './types';
 
+export type GlossaryEntry = {
+  code: string;
+  it: string;
+  en: string;
+};
+
 export const getPositionType = (terminal: TerminalType, position: string): PositionType => {
   const posNum = parseInt(position, 10);
 
@@ -48,6 +54,19 @@ export const requiresEmptyCartNote = (flight: Pick<Flight, 'flightNumber'>) => {
   const normalizedFlightNumber = flight.flightNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return normalizedFlightNumber.startsWith('IB');
 };
+
+export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
+  { code: 'BL', it: 'Colli / bagagli locali.', en: 'Local baggage / local load.' },
+  { code: 'BT', it: 'Transito.', en: 'Transit.' },
+  { code: 'BS', it: 'Short connection.', en: 'Short connection.' },
+  { code: 'TF', it: 'Short connection.', en: 'Short connection.' },
+  { code: 'FC', it: 'First Class / bagagli priority.', en: 'First Class / priority baggage.' },
+  { code: 'CARR', it: 'Nel campo FC significa priority su carrello dedicato.', en: 'In the FC field it means priority on a dedicated cart.' },
+  { code: 'AKH', it: 'Totale contenitori AKH.', en: 'Total AKH containers.' },
+  { code: 'AS02', it: 'Stampante T1 per caroselli e baie.', en: 'T1 printer for belts and bays.' },
+  { code: 'AS06', it: 'Stampante T1 per scivoli.', en: 'T1 printer for slides.' },
+  { code: 'APH', it: 'Stampante T1 solo per baie.', en: 'T1 printer for bays only.' },
+];
 
 const now = Date.now();
 const getRelativeTime = (hours: number, minutes: number) => {
@@ -108,6 +127,10 @@ export const TRANSLATIONS = {
     focusLabel: 'FOCUS',
     settings: 'Impostazioni',
     languageSettings: 'Lingua',
+    glossary: 'Glossario',
+    glossaryDescription: 'Cerca sigle operative e stampanti usate nell\'app.',
+    glossarySearchPlaceholder: 'Cerca sigla o significato...',
+    glossaryNoResults: 'Nessun risultato per questa ricerca.',
     debug: 'Debug',
     backToBoard: 'Torna alla board',
     debugDescription: 'Strumenti e toggle non essenziali per l\'uso quotidiano.',
@@ -223,6 +246,10 @@ export const TRANSLATIONS = {
     focusLabel: 'FOCUS',
     settings: 'Settings',
     languageSettings: 'Language',
+    glossary: 'Glossary',
+    glossaryDescription: 'Search operating codes and printers used in the app.',
+    glossarySearchPlaceholder: 'Search code or meaning...',
+    glossaryNoResults: 'No results for this search.',
     debug: 'Debug',
     backToBoard: 'Back to board',
     debugDescription: 'Non-essential tools and toggles for day-to-day use.',

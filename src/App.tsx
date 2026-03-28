@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType } from './types';
-import { MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
+import { GLOSSARY_ENTRIES, MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
@@ -756,6 +756,7 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
   const [state, setState] = useState<AppState>(persistedState.appState);
+  const [glossaryQuery, setGlossaryQuery] = useState('');
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
   const [shiftStart, setShiftStart] = useState(defaultShiftStart);
@@ -1276,6 +1277,19 @@ export default function App() {
     return [baseText, crossedOutSection].filter(Boolean).join('\n\n');
   }, [ocrReview, t.crossedOutLinesDetected]);
 
+  const filteredGlossaryEntries = useMemo(() => {
+    const query = glossaryQuery.trim().toLowerCase();
+    if (!query) {
+      return GLOSSARY_ENTRIES;
+    }
+
+    return GLOSSARY_ENTRIES.filter((entry) =>
+      entry.code.toLowerCase().includes(query) ||
+      entry.it.toLowerCase().includes(query) ||
+      entry.en.toLowerCase().includes(query)
+    );
+  }, [glossaryQuery]);
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
       {/* Header */}
@@ -1369,6 +1383,41 @@ export default function App() {
                       {option.label}
                     </button>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5 shadow-2xl">
+              <div className="mb-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-cyan-300">{t.glossary}</p>
+                <p className="mt-2 text-sm text-white/50">{t.glossaryDescription}</p>
+              </div>
+              <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" size={16} />
+                  <input
+                    type="text"
+                    value={glossaryQuery}
+                    onChange={(event) => setGlossaryQuery(event.target.value)}
+                    placeholder={t.glossarySearchPlaceholder}
+                    className="w-full rounded-xl border border-white/10 bg-black/20 py-2 pl-10 pr-4 text-sm text-white outline-none transition-all focus:border-cyan-400/40"
+                  />
+                </div>
+                <div className="mt-4 space-y-2">
+                  {filteredGlossaryEntries.length > 0 ? (
+                    filteredGlossaryEntries.map((entry) => (
+                      <div key={entry.code} className="rounded-xl border border-white/5 bg-black/20 px-3 py-3">
+                        <div className="text-sm font-black uppercase tracking-[0.18em] text-cyan-200">{entry.code}</div>
+                        <div className="mt-1 text-sm text-white/75">
+                          {state.language === 'it' ? entry.it : entry.en}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-white/5 bg-black/20 px-3 py-4 text-sm text-white/45">
+                      {t.glossaryNoResults}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
