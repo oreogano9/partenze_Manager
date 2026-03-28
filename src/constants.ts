@@ -44,6 +44,11 @@ export const requiresContainerDamageCheck = (flight: Pick<Flight, 'flightNumber'
   return ['LH', 'LX', 'OS'].some((prefix) => normalizedFlightNumber.startsWith(prefix));
 };
 
+export const requiresEmptyCartNote = (flight: Pick<Flight, 'flightNumber'>) => {
+  const normalizedFlightNumber = flight.flightNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return normalizedFlightNumber.startsWith('IB');
+};
+
 const now = Date.now();
 const getRelativeTime = (hours: number, minutes: number) => {
   // Base is 05:45

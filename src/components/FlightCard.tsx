@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Flight } from '../types';
-import { getPositionType, getPrinterTags, requiresContainerDamageCheck } from '../constants';
+import { getPositionType, getPrinterTags, requiresContainerDamageCheck, requiresEmptyCartNote } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
 import { getCommonIataCityName, getCommonIataLocationName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
 import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
@@ -225,6 +225,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   const hasOpsDetails = uniqueBadges.length > 0 || parsedRequest.notes.length > 0 || flight.tot || flight.anomaly || flight.bag;
   const printerTags = getPrinterTags(flight);
   const showDamageCheck = requiresContainerDamageCheck(flight);
+  const showEmptyCartNote = requiresEmptyCartNote(flight);
 
   return (
     <>
@@ -280,7 +281,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                 </div>
               </div>
             )}
-            {(printerTags.length > 0 || showDamageCheck) && (
+            {(printerTags.length > 0 || showDamageCheck || showEmptyCartNote) && (
               <div className="flex flex-wrap gap-2">
                 {printerTags.map((printerTag) => (
                   <span
@@ -293,6 +294,11 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                 {showDamageCheck && (
                   <span className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-amber-100">
                     Check danni contenitori
+                  </span>
+                )}
+                {showEmptyCartNote && (
+                  <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-violet-100">
+                    Aggiungi Carrello Vuoto
                   </span>
                 )}
               </div>

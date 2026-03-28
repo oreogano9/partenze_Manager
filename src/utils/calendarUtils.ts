@@ -1,5 +1,5 @@
 import { Flight } from '../types';
-import { getPrinterTags, requiresContainerDamageCheck } from '../constants';
+import { getPrinterTags, requiresContainerDamageCheck, requiresEmptyCartNote } from '../constants';
 import { getIataLocationName } from './iataLookup';
 
 type CalendarExportOptions = {
@@ -120,6 +120,7 @@ const getCalendarDescription = async (flight: Flight) => {
   const destinationLocation = await getIataLocationName(flight.destination, 'it');
   const printerTags = getPrinterTags(flight);
   const requiresDamageCheck = requiresContainerDamageCheck(flight);
+  const requiresEmptyCart = requiresEmptyCartNote(flight);
   const segments = splitTopLevelSegments(flight.richiesta);
   const transitSegments = segments
     .filter((segment) => segment.startsWith('(') && segment.endsWith(')'))
@@ -140,6 +141,7 @@ const getCalendarDescription = async (flight: Flight) => {
     flight.fc?.trim() ? `FirstClass ${flight.fc.trim().toUpperCase()}` : '',
     printerTags.length > 0 ? printerTags.join(' | ') : '',
     requiresDamageCheck ? 'Controlla danni contenitori' : '',
+    requiresEmptyCart ? 'Aggiungi Carrello Vuoto' : '',
   ].filter(Boolean);
 
   return lines.join('\n');
