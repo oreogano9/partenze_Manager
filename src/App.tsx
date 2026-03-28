@@ -7,7 +7,7 @@ import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from 
 import { copyFlightsToClipboard, downloadICS, getCalendarExportFingerprint } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
 import { getIataSearchIndex } from './utils/iataLookup';
-import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Square, CheckSquare, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
+import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
@@ -20,7 +20,6 @@ type OCRMergeInfo = {
   changedFields: Set<MergeField>;
   previousFlight: Flight | null;
 };
-type OcrSelectionPreset = 'All' | 'None' | PositionType;
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
 type PersistedState = {
   appState: AppState;
@@ -31,7 +30,6 @@ type PersistedState = {
 
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
-  onToggle: (id: string) => void;
   onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
   t: any;
   language: 'it' | 'en';
@@ -406,7 +404,7 @@ const loadPersistedState = (): PersistedState => {
   }
 };
 
-const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFieldChange, t, language, mergeInfo, canImport}) => {
+const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onFieldChange, t, language, mergeInfo, canImport}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showChangeDetails, setShowChangeDetails] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
@@ -442,9 +440,7 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
       className={`rounded-xl border shadow-lg relative overflow-visible ${
         mergeStatus === 'unchanged'
           ? 'border-pink-400/25 bg-[#1a1a1a]'
-          : flight.selected
-            ? 'border-emerald-500/20 bg-[#1a1a1a]'
-            : 'border-white/8 bg-[#141414] opacity-70'
+          : 'border-emerald-500/20 bg-[#1a1a1a]'
       } ${isExpanded ? 'z-30' : 'z-0'}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -539,12 +535,6 @@ const OCRPreviewCard: React.FC<OCRPreviewCardProps> = ({flight, onToggle, onFiel
         </div>
 
         <div className="flex flex-col items-end justify-center gap-1 shrink-0">
-          <button
-            onClick={() => onToggle(flight.id)}
-            className="rounded-xl p-2 text-white/30 transition-all hover:bg-white/5 hover:text-white"
-          >
-            {flight.selected ? <CheckSquare size={18} className="text-emerald-300" /> : <Square size={18} />}
-          </button>
           <div className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${labelClass}`}>
             {statusLabel}
           </div>
@@ -769,8 +759,6 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
-  const [ocrReviewTypeFilter, setOcrReviewTypeFilter] = useState<'All' | PositionType>('All');
-  const [ocrSelectionPreset, setOcrSelectionPreset] = useState<OcrSelectionPreset>('All');
   const [ocrFixFlightId, setOcrFixFlightId] = useState<string | null>(null);
   const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -891,27 +879,11 @@ export default function App() {
   };
 
   const closeOcrReview = () => {
-    setOcrReviewTypeFilter('All');
-    setOcrSelectionPreset('All');
     setOcrFixFlightId(null);
     setMobileOcrPanel('flights');
     setOcrReview(prev => {
       prev?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
       return null;
-    });
-  };
-
-  const toggleOcrCandidate = (id: string) => {
-    setOcrReview(prev => {
-      if (!prev) {
-        return prev;
-      }
-      return {
-        ...prev,
-        flights: prev.flights.map(flight => (
-          flight.id === id ? {...flight, selected: !flight.selected} : flight
-        )),
-      };
     });
   };
 
@@ -944,36 +916,6 @@ export default function App() {
         }),
       };
     });
-  };
-
-  const toggleAllOcrCandidates = (selected: boolean) => {
-    setOcrReview(prev => {
-      if (!prev) {
-        return prev;
-      }
-      return {
-        ...prev,
-        flights: prev.flights.map(flight => ({...flight, selected: selected ? canImportOcrFlight(flight, state.flights) : false})),
-      };
-    });
-    setOcrSelectionPreset(selected ? 'All' : 'None');
-  };
-
-  const setOcrSelectionByType = (type: PositionType) => {
-    setOcrReview(prev => {
-      if (!prev) {
-        return prev;
-      }
-      return {
-        ...prev,
-        flights: prev.flights.map(flight => ({
-          ...flight,
-          selected: getPositionType(flight.terminal, flight.position) === type && canImportOcrFlight(flight, state.flights),
-        })),
-      };
-    });
-    setOcrReviewTypeFilter(type);
-    setOcrSelectionPreset(type);
   };
 
   const handleImportFlights = () => {
@@ -1036,8 +978,6 @@ export default function App() {
         }));
 
         if (!prev) {
-          setOcrReviewTypeFilter('All');
-          setOcrSelectionPreset('All');
           setMobileOcrPanel('flights');
           return {
             text: result.text,
@@ -1192,11 +1132,7 @@ export default function App() {
     ? ocrReview.flights.find((flight) => flight.id === ocrFixFlightId) ?? null
     : null;
   const visibleOcrFlights = ocrReview
-    ? ocrReview.flights
-      .filter((flight) => (
-        ocrReviewTypeFilter === 'All' || getPositionType(flight.terminal, flight.position) === ocrReviewTypeFilter
-      ))
-      .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
+    ? [...ocrReview.flights].sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
     : [];
   const ocrMergeInfoById = useMemo(
     () => new Map((ocrReview?.flights ?? []).map((flight) => [flight.id, getOcrMergeInfo(flight, state.flights)])),
@@ -1227,9 +1163,7 @@ export default function App() {
         return prev;
       }
 
-      const updatedFlights = prev.flights.map((flight) =>
-        flight.id === ocrFixFlightId ? { ...flight, selected: false } : flight
-      );
+      const updatedFlights = prev.flights.filter((flight) => flight.id !== ocrFixFlightId);
       const nextInvalid = updatedFlights.find((flight) => flight.selected && !canImportOcrFlight(flight, state.flights));
       setOcrFixFlightId(nextInvalid ? nextInvalid.id : null);
 
@@ -2031,60 +1965,7 @@ export default function App() {
                           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.parsedFlights}</p>
                           <p className="mt-1 text-sm text-white/50">{t.parsedFlightsHint}</p>
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2 p-4 pb-0">
-                          <button
-                            onClick={() => setOcrSelectionByType('Scivolo')}
-                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrSelectionPreset === 'Scivolo'
-                                ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
-                                : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
-                            }`}
-                          >
-                            {t.onlyScivoli}
-                          </button>
-                          <button
-                            onClick={() => setOcrSelectionByType('Carosello')}
-                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrSelectionPreset === 'Carosello'
-                                ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
-                                : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
-                            }`}
-                          >
-                            {t.onlyCaroselli}
-                          </button>
-                          <button
-                            onClick={() => setOcrSelectionByType('Baia')}
-                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrSelectionPreset === 'Baia'
-                                ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
-                                : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
-                            }`}
-                          >
-                            {t.onlyBaie}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setOcrReviewTypeFilter('All');
-                              toggleAllOcrCandidates(true);
-                            }}
-                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrSelectionPreset === 'All'
-                                ? 'border-white/20 bg-white/10 text-white'
-                                : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
-                            }`}
-                          >
-                            {t.all}
-                          </button>
-                          <button
-                            onClick={() => toggleAllOcrCandidates(false)}
-                            className={`rounded-full border px-3 py-1 text-xs font-bold transition-all ${
-                              ocrSelectionPreset === 'None'
-                                ? 'border-white/20 bg-white/10 text-white'
-                                : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
-                            }`}
-                          >
-                            {t.none}
-                          </button>
+                        <div className="p-4 pb-0">
                           <div className="rounded-full border border-white/10 px-3 py-1 text-xs font-bold text-white/70">
                             {selectedOcrCount}/{ocrReview.flights.length}
                           </div>
@@ -2106,7 +1987,6 @@ export default function App() {
                             <OCRPreviewCard
                               key={flight.id}
                               flight={flight}
-                              onToggle={toggleOcrCandidate}
                               onFieldChange={updateOcrCandidateField}
                               t={t}
                               language={state.language}
@@ -2129,61 +2009,6 @@ export default function App() {
                               {selectedOcrCount}/{ocrReview.flights.length}
                             </div>
                           </div>
-                          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                            <button
-                              onClick={() => setOcrSelectionByType('Scivolo')}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrSelectionPreset === 'Scivolo'
-                                  ? 'border-amber-400/40 bg-amber-500/15 text-amber-100'
-                                  : 'border-amber-500/20 text-amber-200 hover:bg-amber-500/10'
-                              }`}
-                            >
-                              {t.onlyScivoli}
-                            </button>
-                            <button
-                              onClick={() => setOcrSelectionByType('Carosello')}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrSelectionPreset === 'Carosello'
-                                  ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100'
-                                  : 'border-cyan-500/20 text-cyan-200 hover:bg-cyan-500/10'
-                              }`}
-                            >
-                              {t.onlyCaroselli}
-                            </button>
-                            <button
-                              onClick={() => setOcrSelectionByType('Baia')}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrSelectionPreset === 'Baia'
-                                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
-                                  : 'border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10'
-                              }`}
-                            >
-                              {t.onlyBaie}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setOcrReviewTypeFilter('All');
-                                toggleAllOcrCandidates(true);
-                              }}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrSelectionPreset === 'All'
-                                  ? 'border-white/20 bg-white/10 text-white'
-                                  : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
-                              }`}
-                            >
-                              {t.all}
-                            </button>
-                            <button
-                              onClick={() => toggleAllOcrCandidates(false)}
-                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                ocrSelectionPreset === 'None'
-                                  ? 'border-white/20 bg-white/10 text-white'
-                                  : 'border-white/10 text-white/70 hover:bg-white/5 hover:text-white'
-                              }`}
-                            >
-                              {t.none}
-                            </button>
-                          </div>
                         </div>
                         {ocrReview.flights.length === 0 ? (
                           <div className="m-4 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-white/40">
@@ -2200,7 +2025,6 @@ export default function App() {
                                 <OCRPreviewCard
                                   key={flight.id}
                                   flight={flight}
-                                  onToggle={toggleOcrCandidate}
                                   onFieldChange={updateOcrCandidateField}
                                   t={t}
                                   language={state.language}
@@ -2252,7 +2076,7 @@ export default function App() {
 
                 <div className="rounded-2xl border border-white/5 bg-black/30 p-3">
                   <div className="flex items-center justify-between text-xs text-white/50">
-                    <span>{t.selected}</span>
+                    <span>{t.parsedFlights}</span>
                     <span className="font-black text-white">{selectedOcrCount}</span>
                   </div>
                   <div className="mt-3 flex gap-2">
