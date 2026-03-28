@@ -1,5 +1,6 @@
 import { Flight } from '../types';
 import { getIataCityName } from './iataLookup';
+import { isAs02Flight } from '../constants';
 
 type CalendarExportOptions = {
   updatedFlightIds?: Set<string>;
@@ -61,6 +62,7 @@ export const generateICS = async (flights: Flight[], options: CalendarExportOpti
     const startDate = new Date(endDate.getTime() - 40 * 60000);
     const destinationName = await getIataCityName(f.destination, 'it');
     const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
+    const opsDetails = [containerDetails, isAs02Flight(f) ? 'Stampante AS02' : ''].filter(Boolean).join(' | ');
 
     const formatUtcDate = (date: Date) => date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     const formatRomeLocalDate = (date: Date) =>
@@ -72,7 +74,7 @@ DTSTAMP:${formatUtcDate(new Date())}
 DTSTART;TZID=Europe/Rome:${formatRomeLocalDate(startDate)}
 DTEND;TZID=Europe/Rome:${formatRomeLocalDate(endDate)}
 SUMMARY:${getCalendarSummary(f, options.updatedFlightIds)}
-DESCRIPTION:${[destinationName, containerDetails].filter(Boolean).join('\\n')}
+DESCRIPTION:${[destinationName, opsDetails].filter(Boolean).join('\\n')}
 END:VEVENT`;
   }));
 
@@ -104,7 +106,7 @@ export const formatFlightForClipboard = async (flight: Flight, options: Calendar
   const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
   const destinationName = await getIataCityName(flight.destination, 'it');
   const containerDetails = [flight.richiesta, flight.tot].filter(Boolean).join(' | ');
-  const description = [destinationName, containerDetails].filter(Boolean).join(' ');
+  const description = [destinationName, containerDetails, isAs02Flight(flight) ? 'Stampante AS02' : ''].filter(Boolean).join(' | ');
 
   return [
     `Event title: ${getCalendarSummary(flight, options.updatedFlightIds)} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,

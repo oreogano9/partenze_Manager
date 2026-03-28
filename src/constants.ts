@@ -21,6 +21,9 @@ export const getPositionType = (terminal: TerminalType, position: string): Posit
   }
 };
 
+export const isAs02Flight = (flight: Pick<Flight, 'terminal' | 'position'>) =>
+  flight.terminal === 'T1' && getPositionType(flight.terminal, flight.position) === 'Carosello';
+
 const now = Date.now();
 const getRelativeTime = (hours: number, minutes: number) => {
   // Base is 05:45
