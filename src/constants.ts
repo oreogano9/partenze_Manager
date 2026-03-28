@@ -21,8 +21,28 @@ export const getPositionType = (terminal: TerminalType, position: string): Posit
   }
 };
 
-export const isAs02Flight = (flight: Pick<Flight, 'terminal' | 'position'>) =>
-  flight.terminal === 'T1' && getPositionType(flight.terminal, flight.position) === 'Carosello';
+export const getPrinterTags = (flight: Pick<Flight, 'terminal' | 'position'>): string[] => {
+  if (flight.terminal !== 'T1') {
+    return [];
+  }
+
+  const positionType = getPositionType(flight.terminal, flight.position);
+
+  if (positionType === 'Scivolo') {
+    return ['AS06'];
+  }
+
+  if (positionType === 'Carosello') {
+    return ['AS02'];
+  }
+
+  return ['AS02', 'APH'];
+};
+
+export const requiresContainerDamageCheck = (flight: Pick<Flight, 'flightNumber'>) => {
+  const normalizedFlightNumber = flight.flightNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return ['LH', 'LX', 'OS'].some((prefix) => normalizedFlightNumber.startsWith(prefix));
+};
 
 const now = Date.now();
 const getRelativeTime = (hours: number, minutes: number) => {

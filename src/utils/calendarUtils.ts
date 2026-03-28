@@ -1,6 +1,6 @@
 import { Flight } from '../types';
-import { getIataCityName } from './iataLookup';
-import { isAs02Flight } from '../constants';
+import { getPrinterTags, requiresContainerDamageCheck } from '../constants';
+import { getIataLocationName } from './iataLookup';
 
 type CalendarExportOptions = {
   updatedFlightIds?: Set<string>;
@@ -46,6 +46,105 @@ const getCalendarSummary = (flight: Flight, updatedFlightIds?: Set<string>) => {
   return updatedFlightIds?.has(flight.id) ? `*${baseSummary}` : baseSummary;
 };
 
+const compactFlightCode = (flightNumber: string) => flightNumber.toUpperCase().replace(/\s+/g, '');
+
+const normalizeInlineToken = (value: string) => {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[()]/g, '')
+    .replace(/\s*\/\s*/g, '/')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ');
+
+  const countCodeMatch = normalized.match(/^(\d+)\s+([A-Z]{1,4})$/);
+  if (countCodeMatch) {
+    return `${countCodeMatch[1]}${countCodeMatch[2]}`;
+  }
+
+  const transitMatch = normalized.match(/^(\d+)\s+([A-Z]{3}\/[A-Z0-9]+)$/);
+  if (transitMatch) {
+    return `${transitMatch[1]}${transitMatch[2]}`;
+  }
+
+  return normalized;
+};
+
+const splitTopLevelSegments = (request?: string) => {
+  const raw = request?.trim() ?? '';
+  if (!raw) {
+    return [] as string[];
+  }
+
+  const normalized = raw.replace(/[+]/g, '-');
+  const segments: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (const char of normalized) {
+    if (char === '(') {
+      depth += 1;
+      current += char;
+      continue;
+    }
+
+    if (char === ')') {
+      depth = Math.max(0, depth - 1);
+      current += char;
+      continue;
+    }
+
+    if (char === '-' && depth === 0) {
+      const trimmed = current.trim();
+      if (trimmed) {
+        segments.push(trimmed);
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  const trailing = current.trim();
+  if (trailing) {
+    segments.push(trailing);
+  }
+
+  return segments;
+};
+
+const getCalendarDescription = async (flight: Flight) => {
+  const endDate = new Date(flight.std);
+  const startDate = new Date(endDate.getTime() - 40 * 60000);
+  const destinationLocation = await getIataLocationName(flight.destination, 'it');
+  const printerTags = getPrinterTags(flight);
+  const requiresDamageCheck = requiresContainerDamageCheck(flight);
+  const segments = splitTopLevelSegments(flight.richiesta);
+  const transitSegments = segments
+    .filter((segment) => segment.startsWith('(') && segment.endsWith(')'))
+    .map((segment) => normalizeInlineToken(segment));
+  const coreSegments = segments
+    .filter((segment) => !(segment.startsWith('(') && segment.endsWith(')')))
+    .map((segment) => normalizeInlineToken(segment));
+
+  if (flight.tot?.trim()) {
+    coreSegments.push(normalizeInlineToken(flight.tot));
+  }
+
+  const lines = [
+    `${flight.position.trim() || 'X'} | ${flight.destination.trim().toUpperCase()} | ${compactFlightCode(flight.flightNumber)} | ${formatLocalTime(startDate)} - ${formatLocalTime(endDate)}`,
+    destinationLocation || flight.destination,
+    coreSegments.length > 0 ? coreSegments.join(' | ') : '',
+    transitSegments.length > 0 ? transitSegments.join(' | ') : '',
+    flight.fc?.trim() ? `FirstClass ${flight.fc.trim().toUpperCase()}` : '',
+    printerTags.length > 0 ? printerTags.join(' | ') : '',
+    requiresDamageCheck ? 'Check danni contenitori' : '',
+  ].filter(Boolean);
+
+  return lines.join('\n');
+};
+
 export const getCalendarExportFingerprint = (flight: Flight) =>
   JSON.stringify({
     flightNumber: flight.flightNumber.trim().toUpperCase(),
@@ -54,15 +153,14 @@ export const getCalendarExportFingerprint = (flight: Flight) =>
     std: flight.std,
     richiesta: flight.richiesta?.trim() ?? '',
     tot: flight.tot?.trim() ?? '',
+    fc: flight.fc?.trim() ?? '',
   });
 
 export const generateICS = async (flights: Flight[], options: CalendarExportOptions = {}): Promise<string> => {
   const events = await Promise.all(flights.map(async (f) => {
     const endDate = new Date(f.std);
     const startDate = new Date(endDate.getTime() - 40 * 60000);
-    const destinationName = await getIataCityName(f.destination, 'it');
-    const containerDetails = [f.richiesta, f.tot].filter(Boolean).join(' | ');
-    const opsDetails = [containerDetails, isAs02Flight(f) ? 'Stampante AS02' : ''].filter(Boolean).join(' | ');
+    const description = await getCalendarDescription(f);
 
     const formatUtcDate = (date: Date) => date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     const formatRomeLocalDate = (date: Date) =>
@@ -74,7 +172,7 @@ DTSTAMP:${formatUtcDate(new Date())}
 DTSTART;TZID=Europe/Rome:${formatRomeLocalDate(startDate)}
 DTEND;TZID=Europe/Rome:${formatRomeLocalDate(endDate)}
 SUMMARY:${getCalendarSummary(f, options.updatedFlightIds)}
-DESCRIPTION:${[destinationName, opsDetails].filter(Boolean).join('\\n')}
+DESCRIPTION:${description.replace(/\n/g, '\\n')}
 END:VEVENT`;
   }));
 
@@ -104,14 +202,12 @@ export const formatFlightForClipboard = async (flight: Flight, options: Calendar
   const endDate = new Date(flight.std);
   const startDate = new Date(endDate.getTime() - 40 * 60000);
   const dateLabel = isToday(endDate) ? 'Today' : isTomorrow(endDate) ? 'Tomorrow' : formatLocalDate(endDate);
-  const destinationName = await getIataCityName(flight.destination, 'it');
-  const containerDetails = [flight.richiesta, flight.tot].filter(Boolean).join(' | ');
-  const description = [destinationName, containerDetails, isAs02Flight(flight) ? 'Stampante AS02' : ''].filter(Boolean).join(' | ');
+  const description = await getCalendarDescription(flight);
 
   return [
     `Event title: ${getCalendarSummary(flight, options.updatedFlightIds)} | Date: ${dateLabel} | Start: ${formatLocalTime(startDate)} | End: ${formatLocalTime(endDate)}`,
-    description ? `Event Description: ${description}` : '',
-  ].filter(Boolean).join('\n');
+    `Event Description: ${description}`,
+  ].join('\n');
 };
 
 export const formatFlightsForClipboard = async (flights: Flight[], options: CalendarExportOptions = {}): Promise<string> => {

@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Flight } from '../types';
-import { getPositionType, isAs02Flight } from '../constants';
+import { getPositionType, getPrinterTags, requiresContainerDamageCheck } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
 import { getCommonIataCityName, getCommonIataLocationName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
 import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
@@ -91,7 +91,7 @@ const getBadgeLabel = (value: string, language: 'it' | 'en') => {
   const token = value.trim().toUpperCase();
 
   if (token === 'CARR') {
-    return language === 'it' ? 'CARR - Priority dedicato' : 'CARR - Dedicated priority';
+    return 'FirstClass CARR';
   }
 
   return token;
@@ -223,7 +223,8 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   const requestBadges = [...(flight.fc ? [flight.fc.toUpperCase()] : []), ...parsedRequest.badges];
   const uniqueBadges = Array.from(new Set(requestBadges));
   const hasOpsDetails = uniqueBadges.length > 0 || parsedRequest.notes.length > 0 || flight.tot || flight.anomaly || flight.bag;
-  const showAs02Tag = isAs02Flight(flight);
+  const printerTags = getPrinterTags(flight);
+  const showDamageCheck = requiresContainerDamageCheck(flight);
 
   return (
     <>
@@ -233,11 +234,11 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
           <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
         </div>
         <div className="flex items-center gap-2">
-          {showAs02Tag && (
-            <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200">
-              AS02
+          {printerTags.map((printerTag) => (
+            <span key={printerTag} className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200">
+              {printerTag}
             </span>
-          )}
+          ))}
           <div className="text-right text-[10px] text-white/35 font-semibold tracking-wide">
             {destinationLocation || flight.terminal}
           </div>
@@ -277,6 +278,23 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
                     <TransitNotePill key={note} note={note} language={language} />
                   ))}
                 </div>
+              </div>
+            )}
+            {(printerTags.length > 0 || showDamageCheck) && (
+              <div className="flex flex-wrap gap-2">
+                {printerTags.map((printerTag) => (
+                  <span
+                    key={`printer-${printerTag}`}
+                    className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-cyan-200"
+                  >
+                    {printerTag}
+                  </span>
+                ))}
+                {showDamageCheck && (
+                  <span className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-xs font-black uppercase tracking-wide text-amber-100">
+                    Check danni contenitori
+                  </span>
+                )}
               </div>
             )}
             {(flight.anomaly || flight.bag) && (
