@@ -44,5 +44,4 @@ export interface AppState {
   filterTypes: PositionType[];
   searchQuery: string;
   showFocusOnly: boolean;
-  showMockFlights: boolean;
 }

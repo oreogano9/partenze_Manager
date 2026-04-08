@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType } from './types';
-import { GLOSSARY_ENTRIES, MOCK_FLIGHTS, TRANSLATIONS, getPositionType } from './constants';
+import { GLOSSARY_ENTRIES, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
@@ -312,13 +312,12 @@ const formatTimeOption = (date: Date) =>
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
 const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
-  flights: MOCK_FLIGHTS,
+  flights: [],
   language: 'it',
   showPast: false,
   filterTypes: ALL_POSITION_TYPES,
   searchQuery: '',
   showFocusOnly: false,
-  showMockFlights: false,
 };
 
 const resolveShiftEnd = (start: string, end: string) => {
@@ -794,8 +793,6 @@ export default function App() {
     
     return state.flights
       .filter(f => {
-        const isMockFlight = !f.id.startsWith('ocr-');
-        const matchesMockVisibility = state.showMockFlights || !isMockFlight;
         const isPast = new Date(f.std) <= now;
         const matchesPast = state.showPast || !isPast;
         const posType = getPositionType(f.terminal, f.position);
@@ -818,10 +815,10 @@ export default function App() {
         const flightTime = new Date(f.std);
         const matchesShift = !useShiftFilter || (flightTime >= shiftLowerBound && flightTime <= shiftUpperBound);
 
-        return matchesMockVisibility && matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus && matchesShift;
+        return matchesPast && matchesType && matchesSearch && matchesTerminal && matchesFocus && matchesShift;
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, state.showMockFlights, terminalFilter, shiftStart, shiftEnd, useShiftFilter, iataSearchIndex]);
+  }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, terminalFilter, shiftStart, shiftEnd, useShiftFilter, iataSearchIndex]);
 
   const hasImportedFlights = useMemo(
     () => state.flights.some((flight) => flight.id.startsWith('ocr-')),
@@ -1364,35 +1361,15 @@ export default function App() {
               <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-bold text-white">{t.showDummyData}</p>
-                    <p className="text-xs text-white/45">
-                      {state.showMockFlights ? t.showDummy : t.hideDummy}
-                    </p>
+                    <p className="text-sm font-bold text-white">{t.clearLocalData}</p>
+                    <p className="text-xs text-white/45">{t.clearLocalDataDescription}</p>
                   </div>
                   <button
-                    onClick={() => setState(prev => ({ ...prev, showMockFlights: !prev.showMockFlights }))}
-                    className={`min-w-24 rounded-full px-4 py-2 text-xs font-bold transition-all ${
-                      state.showMockFlights
-                        ? 'bg-emerald-500 text-black'
-                        : 'bg-white/10 text-white/70 hover:bg-white/15'
-                    }`}
+                    onClick={clearLocalData}
+                    className="rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-200 transition-all hover:bg-rose-500/20"
                   >
-                    {state.showMockFlights ? 'ON' : 'OFF'}
+                    {t.clearLocalDataAction}
                   </button>
-                </div>
-                <div className="mt-4 border-t border-white/5 pt-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-bold text-white">{t.clearLocalData}</p>
-                      <p className="text-xs text-white/45">{t.clearLocalDataDescription}</p>
-                    </div>
-                    <button
-                      onClick={clearLocalData}
-                      className="rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-200 transition-all hover:bg-rose-500/20"
-                    >
-                      {t.clearLocalDataAction}
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1705,7 +1682,7 @@ export default function App() {
             })
           )}
         </div>
-        </>
+          </>
         )}
       </main>
 
