@@ -28,6 +28,11 @@ type PersistedState = {
   connectionThreshold: 5 | 10;
 };
 
+type SharedFlightsResponse = {
+  flights?: Flight[];
+  error?: string;
+};
+
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
@@ -311,6 +316,7 @@ const formatTimeOption = (date: Date) =>
 
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
 const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
+const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const DEFAULT_APP_STATE: AppState = {
   flights: [],
   language: 'it',
@@ -352,6 +358,13 @@ const isImportedFlightExpired = (flight: Flight) => {
 const pruneExpiredImportedFlights = (flights: Flight[]) =>
   flights.filter((flight) => !isImportedFlightExpired(flight));
 
+const normalizeStoredFlights = (flights: Flight[]) =>
+  pruneExpiredImportedFlights(flights).map((flight) => ({
+    ...flight,
+    flightNumber: normalizeFlightCode(flight.flightNumber),
+    tags: Array.isArray(flight.tags) ? flight.tags : [],
+  }));
+
 const loadPersistedState = (): PersistedState => {
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
   const defaultShiftEndDate = new Date();
@@ -375,11 +388,6 @@ const loadPersistedState = (): PersistedState => {
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    const persistedFlights = pruneExpiredImportedFlights(parsed.appState?.flights ?? DEFAULT_APP_STATE.flights)
-      .map((flight) => ({
-        ...flight,
-        flightNumber: normalizeFlightCode(flight.flightNumber),
-      }));
     const legacyFilterType = (parsed.appState as AppState & { filterType?: PositionType | 'All' } | undefined)?.filterType;
     const persistedFilterTypes = Array.isArray(parsed.appState?.filterTypes)
       ? parsed.appState.filterTypes.filter((type): type is PositionType => ALL_POSITION_TYPES.includes(type as PositionType))
@@ -390,7 +398,7 @@ const loadPersistedState = (): PersistedState => {
       appState: {
         ...DEFAULT_APP_STATE,
         ...parsed.appState,
-        flights: persistedFlights,
+        flights: [],
         filterTypes: persistedFilterTypes,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
@@ -764,6 +772,7 @@ export default function App() {
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
+  const [hasLoadedSharedFlights, setHasLoadedSharedFlights] = useState(false);
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const scanMenuRef = useRef<HTMLDivElement>(null);
   const shiftMenuRef = useRef<HTMLDivElement>(null);
@@ -824,8 +833,9 @@ export default function App() {
     () => state.flights.some((flight) => flight.id.startsWith('ocr-')),
     [state.flights],
   );
-  const shouldShowOnboardingEmptyState = filteredFlights.length === 0 && !hasImportedFlights;
-  const shouldShowFilteredEmptyState = filteredFlights.length === 0 && hasImportedFlights;
+  const isLoadingSharedBoard = !hasLoadedSharedFlights;
+  const shouldShowOnboardingEmptyState = !isLoadingSharedBoard && filteredFlights.length === 0 && !hasImportedFlights;
+  const shouldShowFilteredEmptyState = !isLoadingSharedBoard && filteredFlights.length === 0 && hasImportedFlights;
 
   const handleTagToggle = (id: string, tag: string) => {
     setState(prev => ({
@@ -848,8 +858,8 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const confirmed = window.confirm(
         state.language === 'it'
-          ? 'Vuoi davvero cancellare tutti i dati salvati localmente? I dati demo resteranno disponibili.'
-          : 'Do you want to delete all locally saved data? Dummy data will remain available.'
+          ? 'Vuoi davvero ripristinare preferenze e filtri salvati solo in questo browser?'
+          : 'Do you want to reset preferences and filters saved only in this browser?'
       );
 
       if (!confirmed) {
@@ -859,7 +869,7 @@ export default function App() {
       window.localStorage.removeItem(PERSISTED_STATE_KEY);
     }
 
-    setState(DEFAULT_APP_STATE);
+    setState((prev) => ({ ...DEFAULT_APP_STATE, flights: prev.flights }));
     setTerminalFilter('ALL');
     setScanTerminal('T1');
     setShiftStart(defaultShiftStart);
@@ -1093,6 +1103,40 @@ export default function App() {
   }, [copyFeedback]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedFlights = async () => {
+      try {
+        const response = await fetch(SHARED_FLIGHTS_ENDPOINT);
+        const payload = await response.json() as SharedFlightsResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error || 'Failed to load shared flights');
+        }
+
+        if (!cancelled) {
+          setState((prev) => ({
+            ...prev,
+            flights: normalizeStoredFlights(payload.flights ?? []),
+          }));
+          setHasLoadedSharedFlights(true);
+        }
+      } catch (error) {
+        console.error('Failed to load shared flights', error);
+        if (!cancelled) {
+          setHasLoadedSharedFlights(true);
+        }
+      }
+    };
+
+    void loadSharedFlights();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -1100,7 +1144,7 @@ export default function App() {
     const snapshot: PersistedState = {
       appState: {
         ...state,
-        flights: pruneExpiredImportedFlights(state.flights),
+        flights: [],
       },
       terminalFilter,
       scanTerminal,
@@ -1109,6 +1153,34 @@ export default function App() {
 
     window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
   }, [state, terminalFilter, scanTerminal, connectionThreshold]);
+
+  useEffect(() => {
+    if (!hasLoadedSharedFlights) {
+      return;
+    }
+
+    const persistSharedFlights = async () => {
+      try {
+        const flights = normalizeStoredFlights(state.flights);
+        const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ flights }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || 'Failed to save shared flights');
+        }
+      } catch (error) {
+        console.error('Failed to save shared flights', error);
+      }
+    };
+
+    void persistSharedFlights();
+  }, [state.flights, hasLoadedSharedFlights]);
 
   useEffect(() => {
     if (!isExtracting) {
