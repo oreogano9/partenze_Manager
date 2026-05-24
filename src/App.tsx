@@ -40,6 +40,11 @@ type AdrSyncResponse = {
   error?: string;
 };
 
+type AdrSyncStatus = {
+  state: 'success' | 'failure';
+  at: number;
+};
+
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
@@ -328,6 +333,7 @@ const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const ADR_SYNC_ENDPOINT = '/api/adr-sync';
 const ADR_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const STATUS_TICK_MS = 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
   flights: [],
   language: 'it',
@@ -375,6 +381,11 @@ const normalizeStoredFlights = (flights: Flight[]) =>
     flightNumber: normalizeFlightCode(flight.flightNumber),
     tags: Array.isArray(flight.tags) ? flight.tags : [],
   }));
+
+const formatMinutesAgo = (timestamp: number, now: number) => {
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  return `${minutes}m ago`;
+};
 
 const loadPersistedState = (): PersistedState => {
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
@@ -1062,6 +1073,8 @@ export default function App() {
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
   const [hasLoadedSharedFlights, setHasLoadedSharedFlights] = useState(false);
+  const [adrSyncStatus, setAdrSyncStatus] = useState<AdrSyncStatus | null>(null);
+  const [statusNow, setStatusNow] = useState(() => Date.now());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
   const scanMenuRef = useRef<HTMLDivElement>(null);
   const shiftMenuRef = useRef<HTMLDivElement>(null);
@@ -1090,6 +1103,11 @@ export default function App() {
   useEffect(() => {
     stateFlightsRef.current = state.flights;
   }, [state.flights]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setStatusNow(Date.now()), STATUS_TICK_MS);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const filteredFlights = useMemo(() => {
     const now = new Date();
@@ -1511,8 +1529,16 @@ export default function App() {
             flights: normalizeStoredFlights(payload.flights ?? prev.flights),
           }));
         }
+        if (!cancelled) {
+          setAdrSyncStatus({ state: 'success', at: Date.now() });
+          setStatusNow(Date.now());
+        }
       } catch (error) {
         console.error('ADR sync failed', error);
+        if (!cancelled) {
+          setAdrSyncStatus({ state: 'failure', at: Date.now() });
+          setStatusNow(Date.now());
+        }
       } finally {
         adrSyncInFlightRef.current = false;
       }
@@ -1637,6 +1663,9 @@ export default function App() {
       entry.en.toLowerCase().includes(query)
     );
   }, [glossaryQuery]);
+  const adrSyncStatusLabel = adrSyncStatus
+    ? `${adrSyncStatus.state === 'success' ? 'Updated' : 'Failed update'} ${formatMinutesAgo(adrSyncStatus.at, statusNow)}`
+    : null;
 
   if (isWatchRoute) {
     return <WatchApp flights={state.flights} isLoading={isLoadingSharedBoard} />;
@@ -1704,6 +1733,17 @@ export default function App() {
                   </button>
                 )}
               </div>
+              {adrSyncStatusLabel && (
+                <div
+                  className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black ${
+                    adrSyncStatus?.state === 'success'
+                      ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+                      : 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+                  } sm:hidden`}
+                >
+                  {adrSyncStatusLabel}
+                </div>
+              )}
             </div>
           </div>
         </>
