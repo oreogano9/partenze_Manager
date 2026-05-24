@@ -387,6 +387,26 @@ const formatMinutesAgo = (timestamp: number, now: number) => {
   return `${minutes}m ago`;
 };
 
+const shouldUseWatchView = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const pathname = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  const searchParams = new URLSearchParams(window.location.search);
+  const userAgent = window.navigator.userAgent;
+
+  return (
+    pathname.startsWith('/watch') ||
+    hash === '#watch' ||
+    hash.startsWith('#/watch') ||
+    searchParams.get('view') === 'watch' ||
+    searchParams.get('watch') === '1' ||
+    /apple watch|watch os|watchos/i.test(userAgent)
+  );
+};
+
 const loadPersistedState = (): PersistedState => {
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
   const defaultShiftEndDate = new Date();
@@ -1044,7 +1064,7 @@ const WatchApp: React.FC<{
 };
 
 export default function App() {
-  const isWatchRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/watch');
+  const isWatchRoute = shouldUseWatchView();
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
   const defaultShiftEndDate = new Date();
   defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);

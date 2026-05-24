@@ -3,6 +3,10 @@
     {
       "source": "/watch",
       "destination": "/index.html"
+    },
+    {
+      "source": "/watch/:path*",
+      "destination": "/index.html"
     }
   ]
 }
