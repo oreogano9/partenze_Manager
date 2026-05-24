@@ -33,6 +33,13 @@ type SharedFlightsResponse = {
   error?: string;
 };
 
+type AdrSyncResponse = {
+  flights?: Flight[];
+  updatedCount?: number;
+  checkedCount?: number;
+  error?: string;
+};
+
 type OCRPreviewCardProps = {
   flight: OCRReviewFlight;
   onFieldChange: (id: string, field: 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position', value: string) => void;
@@ -319,6 +326,8 @@ const formatTimeOption = (date: Date) =>
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
 const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
+const ADR_SYNC_ENDPOINT = '/api/adr-sync';
+const ADR_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
   flights: [],
   language: 'it',
@@ -1059,6 +1068,8 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
+  const adrSyncInFlightRef = useRef(false);
+  const stateFlightsRef = useRef<Flight[]>(state.flights);
 
   const t = TRANSLATIONS[state.language];
 
@@ -1075,6 +1086,10 @@ export default function App() {
       cancelled = true;
     };
   }, [state.language]);
+
+  useEffect(() => {
+    stateFlightsRef.current = state.flights;
+  }, [state.flights]);
 
   const filteredFlights = useMemo(() => {
     const now = new Date();
@@ -1461,6 +1476,56 @@ export default function App() {
 
     void persistSharedFlights();
   }, [state.flights, hasLoadedSharedFlights]);
+
+  useEffect(() => {
+    if (!hasLoadedSharedFlights || state.flights.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncAdrFlights = async () => {
+      if (adrSyncInFlightRef.current) {
+        return;
+      }
+
+      adrSyncInFlightRef.current = true;
+
+      try {
+        const response = await fetch(ADR_SYNC_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ flights: normalizeStoredFlights(stateFlightsRef.current) }),
+        });
+        const payload = await response.json() as AdrSyncResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error || 'ADR sync failed');
+        }
+
+        if (!cancelled && payload.updatedCount && payload.updatedCount > 0 && Array.isArray(payload.flights)) {
+          setState((prev) => ({
+            ...prev,
+            flights: normalizeStoredFlights(payload.flights ?? prev.flights),
+          }));
+        }
+      } catch (error) {
+        console.error('ADR sync failed', error);
+      } finally {
+        adrSyncInFlightRef.current = false;
+      }
+    };
+
+    void syncAdrFlights();
+    const interval = window.setInterval(syncAdrFlights, ADR_SYNC_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [hasLoadedSharedFlights, state.flights.length]);
 
   useEffect(() => {
     if (!isExtracting) {
