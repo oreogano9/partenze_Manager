@@ -6,7 +6,7 @@ import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
 import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from './utils/timeUtils';
 import { copyFlightsToClipboard, downloadICS, getCalendarExportFingerprint } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
-import { getIataSearchIndex } from './utils/iataLookup';
+import { getCommonIataLocationName, getIataLocationName, getIataSearchIndex } from './utils/iataLookup';
 import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -51,6 +51,8 @@ type OCRFixModalProps = {
   onAdd: () => void;
   t: any;
 };
+
+type WatchStep = 'timeline' | 'destinations' | 'flights' | 'detail';
 
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
@@ -744,7 +746,285 @@ const OCRFixModal: React.FC<OCRFixModalProps> = ({ flight, onFieldChange, onSkip
   );
 };
 
+const WatchFlightCard: React.FC<{
+  flight: Flight;
+  compact?: boolean;
+  onClick: () => void;
+}> = ({ flight, compact = false, onClick }) => {
+  const minutesToTarget = getMinutesToTarget(flight.std);
+  const urgencyColor = getUrgencyColor(minutesToTarget);
+  const targetLabel = formatDuration(minutesToTarget);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-lg border border-white/10 bg-white/[0.05] p-2 text-left active:scale-[0.98]"
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-md text-white"
+          style={{ backgroundColor: urgencyColor }}
+        >
+          <span className="text-sm font-black leading-none">{flight.position || 'X'}</span>
+          <span className="text-[10px] font-black leading-none">{flight.destination}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-black text-white">{flight.flightNumber}</div>
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-white/50">
+            <span>{formatHHmm(flight.std)}</span>
+            <span className="text-white/20">|</span>
+            <span>{targetLabel}</span>
+          </div>
+        </div>
+      </div>
+      {!compact && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-bold text-white/45">
+          <span>{flight.terminal}</span>
+          <span>{getPositionType(flight.terminal, flight.position)}</span>
+        </div>
+      )}
+    </button>
+  );
+};
+
+const WatchLocationName: React.FC<{ destination: string }> = ({ destination }) => {
+  const [location, setLocation] = useState(() => getCommonIataLocationName(destination, 'it'));
+
+  useEffect(() => {
+    let cancelled = false;
+    const commonName = getCommonIataLocationName(destination, 'it');
+    setLocation(commonName);
+
+    if (commonName) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    getIataLocationName(destination, 'it').then((name) => {
+      if (!cancelled) {
+        setLocation(name || '');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [destination]);
+
+  return <>{location || destination}</>;
+};
+
+const WatchApp: React.FC<{
+  flights: Flight[];
+  isLoading: boolean;
+}> = ({ flights, isLoading }) => {
+  const [step, setStep] = useState<WatchStep>('timeline');
+  const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+
+  const visibleFlights = useMemo(() => {
+    const now = Date.now();
+    return flights
+      .filter((flight) => !Number.isNaN(new Date(flight.std).getTime()))
+      .filter((flight) => new Date(flight.std).getTime() >= now - 60 * 60000)
+      .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
+  }, [flights]);
+
+  const destinations = useMemo(() => {
+    const grouped = new Map<string, Flight[]>();
+    visibleFlights.forEach((flight) => {
+      const code = flight.destination.trim().toUpperCase() || '---';
+      grouped.set(code, [...(grouped.get(code) ?? []), flight]);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([code, destinationFlights]) => ({
+        code,
+        flights: destinationFlights.sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime()),
+      }))
+      .sort((a, b) => new Date(a.flights[0].std).getTime() - new Date(b.flights[0].std).getTime());
+  }, [visibleFlights]);
+
+  const destinationFlights = useMemo(() => {
+    if (!selectedDestination) {
+      return [];
+    }
+
+    return visibleFlights.filter((flight) => flight.destination.trim().toUpperCase() === selectedDestination);
+  }, [selectedDestination, visibleFlights]);
+
+  const selectedFlight = useMemo(
+    () => visibleFlights.find((flight) => flight.id === selectedFlightId) ?? null,
+    [selectedFlightId, visibleFlights],
+  );
+
+  const goBack = () => {
+    if (step === 'detail') {
+      setSelectedFlightId(null);
+      setStep(selectedDestination ? 'flights' : 'timeline');
+      return;
+    }
+
+    if (step === 'flights') {
+      setSelectedDestination(null);
+      setStep('destinations');
+      return;
+    }
+
+    if (step === 'destinations') {
+      setStep('timeline');
+    }
+  };
+
+  const openFlight = (flight: Flight) => {
+    setSelectedFlightId(flight.id);
+    setSelectedDestination(flight.destination.trim().toUpperCase());
+    setStep('detail');
+  };
+
+  const selectDestination = (destination: string) => {
+    setSelectedDestination(destination);
+    const matches = visibleFlights.filter((flight) => flight.destination.trim().toUpperCase() === destination);
+
+    if (matches.length === 1) {
+      openFlight(matches[0]);
+      return;
+    }
+
+    setSelectedFlightId(null);
+    setStep('flights');
+  };
+
+  return (
+    <div className="min-h-screen bg-black text-white">
+      <div className="mx-auto flex min-h-screen max-w-[240px] flex-col px-2 py-2">
+        <header className="sticky top-0 z-10 -mx-2 border-b border-white/10 bg-black/95 px-2 pb-2 pt-1">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={step === 'timeline'}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/70 disabled:opacity-20"
+              aria-label="Back"
+            >
+              <ArrowLeft size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDestination(null);
+                setSelectedFlightId(null);
+                setStep('timeline');
+              }}
+              className="min-w-0 flex-1 truncate text-center text-[11px] font-black uppercase tracking-[0.12em] text-emerald-300"
+            >
+              Partenze
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedFlightId(null);
+                setStep('destinations');
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/70"
+              aria-label="Search"
+            >
+              <Search size={14} />
+            </button>
+          </div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-auto py-2">
+          {isLoading ? (
+            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-center text-xs font-bold text-white/50">
+              Carico voli...
+            </div>
+          ) : visibleFlights.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-center text-xs font-bold text-white/50">
+              Nessun volo importato
+            </div>
+          ) : step === 'destinations' ? (
+            <div className="space-y-2">
+              {destinations.map(({ code, flights: destinationGroup }) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => selectDestination(code)}
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.05] p-3 text-left active:scale-[0.98]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xl font-black">{code}</span>
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-black text-white/60">
+                      {destinationGroup.length}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[10px] font-bold text-white/45">
+                    {formatHHmm(destinationGroup[0].std)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : step === 'flights' ? (
+            <div className="space-y-2">
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                <div className="text-lg font-black">{selectedDestination}</div>
+                <div className="text-[10px] font-bold text-white/45">
+                  {selectedDestination && <WatchLocationName destination={selectedDestination} />}
+                </div>
+              </div>
+              {destinationFlights.map((flight) => (
+                <WatchFlightCard key={flight.id} flight={flight} compact onClick={() => openFlight(flight)} />
+              ))}
+            </div>
+          ) : step === 'detail' && selectedFlight ? (
+            <div className="space-y-2">
+              <div className="rounded-lg border border-white/10 bg-white/[0.05] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-2xl font-black leading-none">{selectedFlight.position || 'X'}</div>
+                    <div className="mt-1 text-sm font-black text-emerald-300">{selectedFlight.destination}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-base font-black">{selectedFlight.flightNumber}</div>
+                    <div className="text-[10px] font-bold text-white/45">{selectedFlight.terminal}</div>
+                  </div>
+                </div>
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">STD</div>
+                  <div className="text-2xl font-black">{formatHHmm(selectedFlight.std)}</div>
+                  <div className="mt-1 text-xs font-bold text-white/50">
+                    Target {formatDuration(getMinutesToTarget(selectedFlight.std))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs font-bold leading-relaxed text-white/75">
+                <div className="text-white">
+                  <WatchLocationName destination={selectedFlight.destination} />
+                </div>
+                <div className="mt-2">{getPositionType(selectedFlight.terminal, selectedFlight.position)}</div>
+                {selectedFlight.richiesta && <div className="mt-2 break-words">{selectedFlight.richiesta}</div>}
+                {selectedFlight.tot && <div className="mt-1 text-emerald-200">{selectedFlight.tot}</div>}
+                {selectedFlight.fc && <div className="mt-1 text-cyan-200">FirstClass {selectedFlight.fc}</div>}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {visibleFlights.slice(0, 18).map((flight) => (
+                <WatchFlightCard key={flight.id} flight={flight} onClick={() => openFlight(flight)} />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
+  const isWatchRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/watch');
   const defaultShiftStart = formatTimeOption(roundToNearestHalfHour(new Date()));
   const defaultShiftEndDate = new Date();
   defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);
@@ -1292,6 +1572,10 @@ export default function App() {
       entry.en.toLowerCase().includes(query)
     );
   }, [glossaryQuery]);
+
+  if (isWatchRoute) {
+    return <WatchApp flights={state.flights} isLoading={isLoadingSharedBoard} />;
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans selection:bg-emerald-500/30">
