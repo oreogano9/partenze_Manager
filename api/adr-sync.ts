@@ -15,6 +15,7 @@ type AdrFlight = {
 
 type SharedBoardPayload = {
   flights?: Flight[];
+  filters?: unknown;
 };
 
 const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
@@ -186,7 +187,7 @@ const fetchAdrFlights = async (direction: AdrDirection, dateKey: string, interva
   return parseAdrRows(await response.text(), direction);
 };
 
-const readSharedFlights = async () => {
+const readSharedBoard = async (): Promise<SharedBoardPayload> => {
   const blob = await get(SHARED_BOARD_BLOB_PATH, {
     access: 'private',
     token: blobToken,
@@ -194,22 +195,24 @@ const readSharedFlights = async () => {
   });
 
   if (!blob || blob.statusCode !== 200) {
-    return [] as Flight[];
+    return { flights: [] };
   }
 
   const rawText = await new Response(blob.stream).text();
   if (!rawText.trim()) {
-    return [] as Flight[];
+    return { flights: [] };
   }
 
   const parsed = JSON.parse(rawText) as SharedBoardPayload | Flight[];
-  return Array.isArray(parsed) ? parsed : Array.isArray(parsed.flights) ? parsed.flights : [];
+  return Array.isArray(parsed)
+    ? { flights: parsed }
+    : { flights: Array.isArray(parsed.flights) ? parsed.flights : [], filters: parsed.filters };
 };
 
-const writeSharedFlights = async (flights: Flight[]) => {
+const writeSharedBoard = async (flights: Flight[], filters: unknown) => {
   await put(
     SHARED_BOARD_BLOB_PATH,
-    JSON.stringify({ flights }),
+    JSON.stringify({ flights, filters }),
     {
       access: 'private',
       token: blobToken,
@@ -233,7 +236,8 @@ export default async function handler(req: any, res: any) {
 
   try {
     const body = readBody(req.body);
-    const flights = Array.isArray(body.flights) ? body.flights : await readSharedFlights();
+    const sharedBoard = Array.isArray(body.flights) ? body : await readSharedBoard();
+    const flights = Array.isArray(sharedBoard.flights) ? sharedBoard.flights : [];
     if (flights.length === 0) {
       res.status(200).json({ flights: [], updatedCount: 0, checkedCount: 0 });
       return;
@@ -280,7 +284,7 @@ export default async function handler(req: any, res: any) {
     });
 
     if (updatedCount > 0) {
-      await writeSharedFlights(updatedFlights);
+      await writeSharedBoard(updatedFlights, sharedBoard.filters);
     }
 
     res.status(200).json({

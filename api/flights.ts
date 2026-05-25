@@ -9,10 +9,10 @@ const readBody = (body: unknown) => {
   }
 
   if (typeof body === 'string') {
-    return JSON.parse(body) as { flights?: unknown };
+    return JSON.parse(body) as { flights?: unknown; filters?: unknown };
   }
 
-  return body as { flights?: unknown };
+  return body as { flights?: unknown; filters?: unknown };
 };
 
 const ensureFlightArray = (value: unknown) => (Array.isArray(value) ? value : []);
@@ -46,8 +46,11 @@ export default async function handler(req: any, res: any) {
       const flights = Array.isArray(parsed)
         ? ensureFlightArray(parsed)
         : ensureFlightArray((parsed as { flights?: unknown }).flights);
+      const filters = Array.isArray(parsed)
+        ? undefined
+        : (parsed as { filters?: unknown }).filters;
 
-      res.status(200).json({ flights });
+      res.status(200).json({ flights, filters });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load shared flights';
       res.status(500).json({ error: message });
@@ -59,10 +62,11 @@ export default async function handler(req: any, res: any) {
     try {
       const body = readBody(req.body);
       const flights = ensureFlightArray(body.flights);
+      const filters = body.filters && typeof body.filters === 'object' ? body.filters : undefined;
 
       await put(
         SHARED_BOARD_BLOB_PATH,
-        JSON.stringify({ flights }),
+        JSON.stringify({ flights, filters }),
         {
           access: 'private',
           token: blobToken,

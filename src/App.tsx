@@ -21,6 +21,15 @@ type OCRMergeInfo = {
   previousFlight: Flight | null;
 };
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
+type SharedBoardFilters = {
+  terminalFilter: 'ALL' | 'T1' | 'T3';
+  filterTypes: PositionType[];
+  showFocusOnly: boolean;
+  showPast: boolean;
+  useShiftFilter: boolean;
+  shiftStart: string;
+  shiftEnd: string;
+};
 type PersistedState = {
   appState: AppState;
   terminalFilter: 'ALL' | 'T1' | 'T3';
@@ -30,6 +39,7 @@ type PersistedState = {
 
 type SharedFlightsResponse = {
   flights?: Flight[];
+  filters?: Partial<SharedBoardFilters>;
   error?: string;
 };
 
@@ -342,6 +352,15 @@ const DEFAULT_APP_STATE: AppState = {
   searchQuery: '',
   showFocusOnly: false,
 };
+const DEFAULT_SHARED_BOARD_FILTERS: SharedBoardFilters = {
+  terminalFilter: 'ALL',
+  filterTypes: ALL_POSITION_TYPES,
+  showFocusOnly: false,
+  showPast: true,
+  useShiftFilter: false,
+  shiftStart: '00:00',
+  shiftEnd: '23:30',
+};
 
 const resolveShiftEnd = (start: string, end: string) => {
   const now = new Date();
@@ -381,6 +400,22 @@ const normalizeStoredFlights = (flights: Flight[]) =>
     flightNumber: normalizeFlightCode(flight.flightNumber),
     tags: Array.isArray(flight.tags) ? flight.tags : [],
   }));
+
+const normalizeSharedBoardFilters = (filters?: Partial<SharedBoardFilters>): SharedBoardFilters => ({
+  terminalFilter: filters?.terminalFilter === 'T1' || filters?.terminalFilter === 'T3' ? filters.terminalFilter : 'ALL',
+  filterTypes: Array.isArray(filters?.filterTypes)
+    ? filters.filterTypes.filter((type): type is PositionType => ALL_POSITION_TYPES.includes(type as PositionType))
+    : ALL_POSITION_TYPES,
+  showFocusOnly: filters?.showFocusOnly === true,
+  showPast: filters?.showPast !== false,
+  useShiftFilter: filters?.useShiftFilter === true,
+  shiftStart: typeof filters?.shiftStart === 'string' && /^\d{2}:\d{2}$/.test(filters.shiftStart)
+    ? filters.shiftStart
+    : DEFAULT_SHARED_BOARD_FILTERS.shiftStart,
+  shiftEnd: typeof filters?.shiftEnd === 'string' && /^\d{2}:\d{2}$/.test(filters.shiftEnd)
+    ? filters.shiftEnd
+    : DEFAULT_SHARED_BOARD_FILTERS.shiftEnd,
+});
 
 const formatMinutesAgo = (timestamp: number, now: number) => {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
@@ -862,19 +897,36 @@ const WatchLocationName: React.FC<{ destination: string }> = ({ destination }) =
 
 const WatchApp: React.FC<{
   flights: Flight[];
+  filters: SharedBoardFilters;
   isLoading: boolean;
-}> = ({ flights, isLoading }) => {
+}> = ({ flights, filters, isLoading }) => {
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
 
   const visibleFlights = useMemo(() => {
     const now = Date.now();
+    const shiftEndDate = resolveShiftEnd(filters.shiftStart, filters.shiftEnd);
+    const shiftLowerBound = new Date(now + 30 * 60000);
+    const shiftUpperBound = new Date(shiftEndDate.getTime() + 60 * 60000);
+
     return flights
       .filter((flight) => !Number.isNaN(new Date(flight.std).getTime()))
-      .filter((flight) => new Date(flight.std).getTime() >= now - 60 * 60000)
+      .filter((flight) => {
+        const flightTime = new Date(flight.std);
+        const minutesToSTD = Math.floor((flightTime.getTime() - now) / 60000);
+        const positionType = getPositionType(flight.terminal, flight.position);
+
+        return (
+          (filters.showPast ? flightTime.getTime() >= now - 60 * 60000 : flightTime.getTime() > now) &&
+          (filters.terminalFilter === 'ALL' || flight.terminal === filters.terminalFilter) &&
+          filters.filterTypes.includes(positionType) &&
+          (!filters.showFocusOnly || (minutesToSTD >= 15 && minutesToSTD <= 90)) &&
+          (!filters.useShiftFilter || (flightTime >= shiftLowerBound && flightTime <= shiftUpperBound))
+        );
+      })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [flights]);
+  }, [flights, filters]);
 
   const destinations = useMemo(() => {
     const grouped = new Map<string, Flight[]>();
@@ -1098,6 +1150,7 @@ export default function App() {
   const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
   const [hasLoadedSharedFlights, setHasLoadedSharedFlights] = useState(false);
   const [canPersistSharedFlights, setCanPersistSharedFlights] = useState(false);
+  const [sharedBoardFilters, setSharedBoardFilters] = useState<SharedBoardFilters>(DEFAULT_SHARED_BOARD_FILTERS);
   const [adrSyncStatus, setAdrSyncStatus] = useState<AdrSyncStatus | null>(null);
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
@@ -1457,6 +1510,7 @@ export default function App() {
             ...prev,
             flights: normalizeStoredFlights(payload.flights ?? []),
           }));
+          setSharedBoardFilters(normalizeSharedBoardFilters(payload.filters));
           setCanPersistSharedFlights(true);
           setHasLoadedSharedFlights(true);
         }
@@ -1501,12 +1555,21 @@ export default function App() {
     const persistSharedFlights = async () => {
       try {
         const flights = normalizeStoredFlights(state.flights);
+        const filters: SharedBoardFilters = {
+          terminalFilter,
+          filterTypes: state.filterTypes,
+          showFocusOnly: state.showFocusOnly,
+          showPast: state.showPast,
+          useShiftFilter,
+          shiftStart,
+          shiftEnd,
+        };
         const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ flights }),
+          body: JSON.stringify({ flights, filters }),
         });
 
         if (!response.ok) {
@@ -1519,7 +1582,18 @@ export default function App() {
     };
 
     void persistSharedFlights();
-  }, [state.flights, isWatchRoute, canPersistSharedFlights]);
+  }, [
+    state.flights,
+    state.filterTypes,
+    state.showFocusOnly,
+    state.showPast,
+    terminalFilter,
+    useShiftFilter,
+    shiftStart,
+    shiftEnd,
+    isWatchRoute,
+    canPersistSharedFlights,
+  ]);
 
   useEffect(() => {
     if (!hasLoadedSharedFlights || state.flights.length === 0) {
@@ -1541,7 +1615,18 @@ export default function App() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ flights: normalizeStoredFlights(stateFlightsRef.current) }),
+          body: JSON.stringify({
+            flights: normalizeStoredFlights(stateFlightsRef.current),
+            filters: {
+              terminalFilter,
+              filterTypes: state.filterTypes,
+              showFocusOnly: state.showFocusOnly,
+              showPast: state.showPast,
+              useShiftFilter,
+              shiftStart,
+              shiftEnd,
+            },
+          }),
         });
         const payload = await response.json() as AdrSyncResponse;
 
@@ -1577,7 +1662,17 @@ export default function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [hasLoadedSharedFlights, state.flights.length]);
+  }, [
+    hasLoadedSharedFlights,
+    state.flights.length,
+    state.filterTypes,
+    state.showFocusOnly,
+    state.showPast,
+    terminalFilter,
+    useShiftFilter,
+    shiftStart,
+    shiftEnd,
+  ]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -1694,7 +1789,7 @@ export default function App() {
     : null;
 
   if (isWatchRoute) {
-    return <WatchApp flights={state.flights} isLoading={isLoadingSharedBoard} />;
+    return <WatchApp flights={state.flights} filters={sharedBoardFilters} isLoading={isLoadingSharedBoard} />;
   }
 
   return (
