@@ -17,7 +17,7 @@ type SharedBoardPayload = {
   flights?: Flight[];
 };
 
-const blobToken = process.env.BLOBV1_READ_WRITE_TOKEN;
+const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
 const SHARED_BOARD_BLOB_PATH = 'partenze-manager/shared-board.json';
 const ADR_BASE_URL = 'https://www.adr.it/pax-fco-voli-in-tempo-reale';
 const ROME_TIME_ZONE = 'Europe/Rome';
@@ -227,7 +227,7 @@ export default async function handler(req: any, res: any) {
   }
 
   if (!blobToken) {
-    res.status(500).json({ error: 'Missing BLOBV1_READ_WRITE_TOKEN' });
+    res.status(500).json({ error: 'Missing BLOB_READ_WRITE_TOKEN' });
     return;
   }
 

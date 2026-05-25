@@ -1097,6 +1097,7 @@ export default function App() {
   const [scanLoadingIndex, setScanLoadingIndex] = useState(0);
   const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
   const [hasLoadedSharedFlights, setHasLoadedSharedFlights] = useState(false);
+  const [canPersistSharedFlights, setCanPersistSharedFlights] = useState(false);
   const [adrSyncStatus, setAdrSyncStatus] = useState<AdrSyncStatus | null>(null);
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
@@ -1456,6 +1457,7 @@ export default function App() {
             ...prev,
             flights: normalizeStoredFlights(payload.flights ?? []),
           }));
+          setCanPersistSharedFlights(true);
           setHasLoadedSharedFlights(true);
         }
       } catch (error) {
@@ -1492,7 +1494,7 @@ export default function App() {
   }, [state, terminalFilter, scanTerminal, connectionThreshold]);
 
   useEffect(() => {
-    if (!hasLoadedSharedFlights) {
+    if (isWatchRoute || !canPersistSharedFlights) {
       return;
     }
 
@@ -1517,7 +1519,7 @@ export default function App() {
     };
 
     void persistSharedFlights();
-  }, [state.flights, hasLoadedSharedFlights]);
+  }, [state.flights, isWatchRoute, canPersistSharedFlights]);
 
   useEffect(() => {
     if (!hasLoadedSharedFlights || state.flights.length === 0) {
