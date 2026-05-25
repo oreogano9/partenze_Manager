@@ -396,6 +396,9 @@ const shouldUseWatchView = () => {
   const hash = window.location.hash.toLowerCase();
   const searchParams = new URLSearchParams(window.location.search);
   const userAgent = window.navigator.userAgent;
+  const smallestViewportSide = Math.min(window.innerWidth, window.innerHeight);
+  const largestViewportSide = Math.max(window.innerWidth, window.innerHeight);
+  const hasWatchSizedViewport = smallestViewportSide <= 260 && largestViewportSide <= 360;
 
   return (
     pathname.startsWith('/watch') ||
@@ -403,6 +406,7 @@ const shouldUseWatchView = () => {
     hash.startsWith('#/watch') ||
     searchParams.get('view') === 'watch' ||
     searchParams.get('watch') === '1' ||
+    hasWatchSizedViewport ||
     /apple watch|watch os|watchos/i.test(userAgent)
   );
 };
