@@ -874,36 +874,37 @@ const WatchFlightCard: React.FC<{
   const minutesToTarget = getMinutesToTarget(flight.std);
   const urgencyColor = getUrgencyColor(minutesToTarget);
   const targetLabel = formatDuration(minutesToTarget);
+  const positionType = getPositionType(flight.terminal, flight.position);
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full rounded-lg border border-white/10 bg-white/[0.05] p-2 text-left active:scale-[0.98]"
+      className="grid min-h-12 w-full grid-cols-[2.65rem_1fr] gap-2 rounded-md bg-white/[0.055] px-1.5 py-1.5 text-left active:scale-[0.99]"
     >
-      <div className="flex items-center gap-2">
-        <div
-          className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-md text-white"
-          style={{ backgroundColor: urgencyColor }}
-        >
-          <span className="text-sm font-black leading-none">{flight.position || 'X'}</span>
-          <span className="text-[10px] font-black leading-none">{flight.destination}</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-black text-white">{flight.flightNumber}</div>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-white/50">
-            <span>{formatHHmm(flight.std)}</span>
-            <span className="text-white/20">|</span>
-            <span>{targetLabel}</span>
-          </div>
-        </div>
+      <div
+        className="flex h-full min-h-10 flex-col items-center justify-center rounded text-white"
+        style={{ backgroundColor: urgencyColor }}
+      >
+        <span className="text-lg font-black leading-none">{flight.position || 'X'}</span>
+        <span className="mt-0.5 text-[9px] font-black leading-none">{flight.terminal}</span>
       </div>
-      {!compact && (
-        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-bold text-white/45">
-          <span>{flight.terminal}</span>
-          <span>{getPositionType(flight.terminal, flight.position)}</span>
+      <div className="min-w-0 self-center">
+        <div className="flex min-w-0 items-baseline justify-between gap-1">
+          <span className="truncate text-base font-black leading-none text-white">{flight.destination}</span>
+          <span className="shrink-0 text-sm font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
         </div>
-      )}
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] font-bold leading-none text-white/50">
+          <span className="truncate">{flight.flightNumber}</span>
+          <span className="shrink-0 text-white/65">{targetLabel}</span>
+        </div>
+        {!compact && (
+          <div className="mt-1 flex items-center justify-between gap-1 text-[9px] font-bold leading-none text-white/30">
+            <span>{positionType}</span>
+            {flight.tot && <span className="truncate text-emerald-200/80">{flight.tot}</span>}
+          </div>
+        )}
+      </div>
     </button>
   );
 };
@@ -996,6 +997,13 @@ const WatchApp: React.FC<{
     () => visibleFlights.find((flight) => flight.id === selectedFlightId) ?? null,
     [selectedFlightId, visibleFlights],
   );
+  const stepLabel = step === 'destinations'
+    ? 'Dest'
+    : step === 'flights'
+      ? selectedDestination || 'Voli'
+      : step === 'detail' && selectedFlight
+        ? selectedFlight.destination
+        : `${visibleFlights.length} voli`;
 
   const goBack = () => {
     if (step === 'detail') {
@@ -1036,14 +1044,14 @@ const WatchApp: React.FC<{
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto flex min-h-screen max-w-[240px] flex-col px-2 py-2">
-        <header className="sticky top-0 z-10 -mx-2 border-b border-white/10 bg-black/95 px-2 pb-2 pt-1">
-          <div className="flex items-center justify-between gap-2">
+      <div className="mx-auto flex min-h-screen max-w-[240px] flex-col px-1.5 py-1.5">
+        <header className="sticky top-0 z-10 -mx-1.5 bg-black/95 px-1.5 pb-1.5 pt-0.5">
+          <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-1">
             <button
               type="button"
               onClick={goBack}
               disabled={step === 'timeline'}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/70 disabled:opacity-20"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.07] text-white/75 disabled:opacity-15"
               aria-label="Back"
             >
               <ArrowLeft size={14} />
@@ -1055,9 +1063,9 @@ const WatchApp: React.FC<{
                 setSelectedFlightId(null);
                 setStep('timeline');
               }}
-              className="min-w-0 flex-1 truncate text-center text-[11px] font-black uppercase tracking-[0.12em] text-emerald-300"
+              className="min-w-0 truncate text-center text-xs font-black uppercase text-emerald-300"
             >
-              Partenze
+              {stepLabel}
             </button>
             <button
               type="button"
@@ -1065,7 +1073,7 @@ const WatchApp: React.FC<{
                 setSelectedFlightId(null);
                 setStep('destinations');
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/70"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.07] text-white/75"
               aria-label="Search"
             >
               <Search size={14} />
@@ -1073,41 +1081,37 @@ const WatchApp: React.FC<{
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-auto py-2">
+        <main className="min-h-0 flex-1 overflow-auto pb-1">
           {isLoading ? (
-            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-center text-xs font-bold text-white/50">
+            <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold text-white/50">
               Carico voli...
             </div>
           ) : visibleFlights.length === 0 ? (
-            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-center text-xs font-bold text-white/50">
-              Nessun volo importato
+            <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold leading-snug text-white/50">
+              Nessun volo
             </div>
           ) : step === 'destinations' ? (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {destinations.map(({ code, flights: destinationGroup }) => (
                 <button
                   key={code}
                   type="button"
                   onClick={() => selectDestination(code)}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.05] p-3 text-left active:scale-[0.98]"
+                  className="grid min-h-11 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-md bg-white/[0.055] px-2 py-1.5 text-left active:scale-[0.99]"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xl font-black">{code}</span>
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-black text-white/60">
-                      {destinationGroup.length}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[10px] font-bold text-white/45">
+                  <span className="truncate text-xl font-black leading-none">{code}</span>
+                  <span className="text-right text-xs font-black leading-tight text-emerald-200">
                     {formatHHmm(destinationGroup[0].std)}
-                  </div>
+                    <span className="ml-1 text-[10px] text-white/40">{destinationGroup.length}</span>
+                  </span>
                 </button>
               ))}
             </div>
           ) : step === 'flights' ? (
-            <div className="space-y-2">
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                <div className="text-lg font-black">{selectedDestination}</div>
-                <div className="text-[10px] font-bold text-white/45">
+            <div className="space-y-1.5">
+              <div className="rounded-md bg-white/[0.035] px-2 py-1.5">
+                <div className="text-base font-black leading-none">{selectedDestination}</div>
+                <div className="mt-1 truncate text-[10px] font-bold leading-none text-white/45">
                   {selectedDestination && <WatchLocationName destination={selectedDestination} />}
                 </div>
               </div>
@@ -1116,39 +1120,38 @@ const WatchApp: React.FC<{
               ))}
             </div>
           ) : step === 'detail' && selectedFlight ? (
-            <div className="space-y-2">
-              <div className="rounded-lg border border-white/10 bg-white/[0.05] p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-2xl font-black leading-none">{selectedFlight.position || 'X'}</div>
-                    <div className="mt-1 text-sm font-black text-emerald-300">{selectedFlight.destination}</div>
+            <div className="space-y-1.5">
+              <div className="rounded-md bg-white/[0.055] p-2">
+                <div className="grid grid-cols-[3.25rem_1fr] gap-2">
+                  <div className="rounded bg-emerald-500 px-1.5 py-2 text-center text-black">
+                    <div className="text-3xl font-black leading-none">{selectedFlight.position || 'X'}</div>
+                    <div className="mt-0.5 text-[10px] font-black leading-none">{selectedFlight.terminal}</div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-base font-black">{selectedFlight.flightNumber}</div>
-                    <div className="text-[10px] font-bold text-white/45">{selectedFlight.terminal}</div>
-                  </div>
-                </div>
-                <div className="mt-3 border-t border-white/10 pt-3">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">STD</div>
-                  <div className="text-2xl font-black">{formatHHmm(selectedFlight.std)}</div>
-                  <div className="mt-1 text-xs font-bold text-white/50">
-                    Target {formatDuration(getMinutesToTarget(selectedFlight.std))}
+                  <div className="min-w-0 self-center">
+                    <div className="truncate text-2xl font-black leading-none text-white">{selectedFlight.destination}</div>
+                    <div className="mt-1 truncate text-sm font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
+                    <div className="mt-2 text-2xl font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
+                    <div className="mt-1 text-[11px] font-bold leading-none text-white/50">
+                      {formatDuration(getMinutesToTarget(selectedFlight.std))}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs font-bold leading-relaxed text-white/75">
-                <div className="text-white">
+              <div className="rounded-md bg-white/[0.04] px-2 py-1.5 text-[11px] font-bold leading-snug text-white/70">
+                <div className="truncate text-white">
                   <WatchLocationName destination={selectedFlight.destination} />
                 </div>
-                <div className="mt-2">{getPositionType(selectedFlight.terminal, selectedFlight.position)}</div>
-                {selectedFlight.richiesta && <div className="mt-2 break-words">{selectedFlight.richiesta}</div>}
-                {selectedFlight.tot && <div className="mt-1 text-emerald-200">{selectedFlight.tot}</div>}
-                {selectedFlight.fc && <div className="mt-1 text-cyan-200">FirstClass {selectedFlight.fc}</div>}
+                <div className="mt-1 flex items-center justify-between gap-1 text-white/45">
+                  <span>{getPositionType(selectedFlight.terminal, selectedFlight.position)}</span>
+                  {selectedFlight.tot && <span className="truncate text-emerald-200">{selectedFlight.tot}</span>}
+                </div>
+                {selectedFlight.richiesta && <div className="mt-1 line-clamp-3 break-words">{selectedFlight.richiesta}</div>}
+                {selectedFlight.fc && <div className="mt-1 text-cyan-200">FC {selectedFlight.fc}</div>}
               </div>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {visibleFlights.slice(0, 18).map((flight) => (
                 <WatchFlightCard key={flight.id} flight={flight} onClick={() => openFlight(flight)} />
               ))}
