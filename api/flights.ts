@@ -1,5 +1,11 @@
 import { get, put } from '@vercel/blob';
 
+type SharedBoardPayload = {
+  flights?: unknown;
+  filters?: unknown;
+  savedAt?: unknown;
+};
+
 const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
 const SHARED_BOARD_BLOB_PATH = 'partenze-manager/shared-board.json';
 
@@ -9,15 +15,17 @@ const readBody = (body: unknown) => {
   }
 
   if (typeof body === 'string') {
-    return JSON.parse(body) as { flights?: unknown; filters?: unknown };
+    return JSON.parse(body) as SharedBoardPayload;
   }
 
-  return body as { flights?: unknown; filters?: unknown };
+  return body as SharedBoardPayload;
 };
 
 const ensureFlightArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
 export default async function handler(req: any, res: any) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+
   if (!blobToken) {
     res.status(500).json({ error: 'Missing BLOB_READ_WRITE_TOKEN' });
     return;
@@ -42,15 +50,18 @@ export default async function handler(req: any, res: any) {
         return;
       }
 
-      const parsed = JSON.parse(rawText) as { flights?: unknown } | unknown[];
+      const parsed = JSON.parse(rawText) as SharedBoardPayload | unknown[];
       const flights = Array.isArray(parsed)
         ? ensureFlightArray(parsed)
         : ensureFlightArray((parsed as { flights?: unknown }).flights);
       const filters = Array.isArray(parsed)
         ? undefined
         : (parsed as { filters?: unknown }).filters;
+      const savedAt = Array.isArray(parsed)
+        ? undefined
+        : (typeof parsed.savedAt === 'string' ? parsed.savedAt : undefined);
 
-      res.status(200).json({ flights, filters });
+      res.status(200).json({ flights, filters, savedAt, count: flights.length });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load shared flights';
       res.status(500).json({ error: message });
@@ -63,10 +74,11 @@ export default async function handler(req: any, res: any) {
       const body = readBody(req.body);
       const flights = ensureFlightArray(body.flights);
       const filters = body.filters && typeof body.filters === 'object' ? body.filters : undefined;
+      const savedAt = new Date().toISOString();
 
       await put(
         SHARED_BOARD_BLOB_PATH,
-        JSON.stringify({ flights, filters }),
+        JSON.stringify({ flights, filters, savedAt }),
         {
           access: 'private',
           token: blobToken,
@@ -76,7 +88,7 @@ export default async function handler(req: any, res: any) {
         },
       );
 
-      res.status(200).json({ ok: true });
+      res.status(200).json({ ok: true, count: flights.length, savedAt });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save shared flights';
       res.status(500).json({ error: message });

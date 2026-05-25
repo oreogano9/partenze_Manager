@@ -14,6 +14,7 @@ const localSharedBoardPath = path.resolve(__dirname, '.partenze-manager.local-bo
 type LocalSharedBoard = {
   flights?: unknown[];
   filters?: unknown;
+  savedAt?: string;
 };
 
 const readBody = (req: IncomingMessage) =>
@@ -29,6 +30,7 @@ const readBody = (req: IncomingMessage) =>
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.end(JSON.stringify(payload));
 };
 
@@ -39,6 +41,7 @@ const readLocalSharedBoard = async (): Promise<LocalSharedBoard> => {
     return {
       flights: Array.isArray(parsed.flights) ? parsed.flights : [],
       filters: parsed.filters,
+      savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : undefined,
     };
   } catch {
     return {flights: []};
@@ -100,8 +103,9 @@ export default defineConfig({
               const body = rawBody ? (JSON.parse(rawBody) as {flights?: unknown; filters?: unknown}) : {};
               const flights = Array.isArray(body.flights) ? body.flights : [];
               const filters = body.filters && typeof body.filters === 'object' ? body.filters : undefined;
-              await writeLocalSharedBoard({flights, filters});
-              sendJson(res, 200, {ok: true});
+              const savedAt = new Date().toISOString();
+              await writeLocalSharedBoard({flights, filters, savedAt});
+              sendJson(res, 200, {ok: true, count: flights.length, savedAt});
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Failed to save shared flights';
               sendJson(res, 500, {error: message});

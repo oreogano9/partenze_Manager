@@ -44,6 +44,8 @@ type PersistedState = {
 type SharedFlightsResponse = {
   flights?: Flight[];
   filters?: Partial<SharedBoardFilters>;
+  savedAt?: string;
+  count?: number;
   error?: string;
 };
 
@@ -57,6 +59,14 @@ type AdrSyncResponse = {
 type AdrSyncStatus = {
   state: 'success' | 'failure';
   at: number;
+};
+
+type SharedBoardStatus = {
+  state: 'idle' | 'loaded' | 'saved' | 'load-failed' | 'save-failed';
+  at: number;
+  message?: string;
+  count?: number;
+  savedAt?: string;
 };
 
 type OCRPreviewCardProps = {
@@ -348,6 +358,7 @@ const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const ADR_SYNC_ENDPOINT = '/api/adr-sync';
 const ADR_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const WATCH_SHARED_REFRESH_MS = 20 * 1000;
 const STATUS_TICK_MS = 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
   flights: [],
@@ -958,7 +969,8 @@ const WatchApp: React.FC<{
   flights: Flight[];
   filters: SharedBoardFilters;
   isLoading: boolean;
-}> = ({ flights, filters, isLoading }) => {
+  sharedStatus: SharedBoardStatus;
+}> = ({ flights, filters, isLoading, sharedStatus }) => {
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
@@ -992,6 +1004,14 @@ const WatchApp: React.FC<{
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
   }, [flights, filters]);
+  const hasHiddenFlights = !isLoading && flights.length > 0 && visibleFlights.length === 0;
+  const statusLabel = sharedStatus.state === 'load-failed'
+    ? 'Load fail'
+    : sharedStatus.state === 'loaded'
+      ? `${visibleFlights.length}/${flights.length}`
+      : sharedStatus.state === 'saved'
+        ? `${visibleFlights.length}/${flights.length}`
+        : `${visibleFlights.length}/${flights.length}`;
 
   const destinations = useMemo(() => {
     const grouped = new Map<string, Flight[]>();
@@ -1068,6 +1088,11 @@ const WatchApp: React.FC<{
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen w-screen max-w-none flex-col px-1.5 py-1.5">
+        <div className={`mb-1 rounded px-1.5 py-0.5 text-center text-[9px] font-black ${
+          sharedStatus.state === 'load-failed' ? 'bg-rose-500/15 text-rose-200' : 'bg-white/[0.045] text-white/35'
+        }`}>
+          {statusLabel}
+        </div>
         <header className="sticky top-0 z-10 -mx-1.5 bg-black/95 px-1.5 pb-1.5 pt-0.5">
           <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-1">
             <button
@@ -1111,7 +1136,7 @@ const WatchApp: React.FC<{
             </div>
           ) : visibleFlights.length === 0 ? (
             <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold leading-snug text-white/50">
-              Nessun volo
+              {hasHiddenFlights ? `${flights.length} filtrati` : 'Nessun volo'}
             </div>
           ) : step === 'destinations' ? (
             <div className="space-y-1.5">
@@ -1224,6 +1249,11 @@ export default function App() {
   const [sharedBoardFilters, setSharedBoardFilters] = useState<SharedBoardFilters>(
     localBoardBackup?.filters ?? DEFAULT_SHARED_BOARD_FILTERS,
   );
+  const [sharedBoardStatus, setSharedBoardStatus] = useState<SharedBoardStatus>({
+    state: 'idle',
+    at: Date.now(),
+    count: initialAppState.flights.length,
+  });
   const [adrSyncStatus, setAdrSyncStatus] = useState<AdrSyncStatus | null>(null);
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
@@ -1572,7 +1602,7 @@ export default function App() {
 
     const loadSharedFlights = async () => {
       try {
-        const response = await fetch(SHARED_FLIGHTS_ENDPOINT);
+        const response = await fetch(`${SHARED_FLIGHTS_ENDPOINT}?t=${Date.now()}`, { cache: 'no-store' });
         const payload = await response.json() as SharedFlightsResponse;
 
         if (!response.ok) {
@@ -1586,23 +1616,38 @@ export default function App() {
             flights: sharedFlights.length > 0 || prev.flights.length === 0 ? sharedFlights : prev.flights,
           }));
           setSharedBoardFilters(normalizeSharedBoardFilters(payload.filters));
+          setSharedBoardStatus({
+            state: 'loaded',
+            at: Date.now(),
+            count: sharedFlights.length,
+            savedAt: payload.savedAt,
+          });
           setCanPersistSharedFlights(true);
           setHasLoadedSharedFlights(true);
         }
       } catch (error) {
         console.error('Failed to load shared flights', error);
         if (!cancelled) {
+          setSharedBoardStatus({
+            state: 'load-failed',
+            at: Date.now(),
+            message: error instanceof Error ? error.message : 'Failed to load shared flights',
+          });
           setHasLoadedSharedFlights(true);
         }
       }
     };
 
     void loadSharedFlights();
+    const interval = isWatchRoute ? window.setInterval(loadSharedFlights, WATCH_SHARED_REFRESH_MS) : null;
 
     return () => {
       cancelled = true;
+      if (interval) {
+        window.clearInterval(interval);
+      }
     };
-  }, []);
+  }, [isWatchRoute]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1649,8 +1694,21 @@ export default function App() {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || 'Failed to save shared flights');
         }
+        const payload = await response.json().catch(() => ({})) as SharedFlightsResponse;
+        setSharedBoardStatus({
+          state: 'saved',
+          at: Date.now(),
+          count: flights.length,
+          savedAt: payload.savedAt,
+        });
       } catch (error) {
         console.error('Failed to save shared flights', error);
+        setSharedBoardStatus({
+          state: 'save-failed',
+          at: Date.now(),
+          message: error instanceof Error ? error.message : 'Failed to save shared flights',
+          count: state.flights.length,
+        });
       }
     };
 
@@ -1852,9 +1910,16 @@ export default function App() {
   const adrSyncStatusLabel = adrSyncStatus
     ? `${adrSyncStatus.state === 'success' ? 'Updated' : 'Failed update'} ${formatMinutesAgo(adrSyncStatus.at, statusNow)}`
     : null;
+  const sharedBoardStatusLabel = sharedBoardStatus.state === 'save-failed'
+    ? `Site save failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
+    : sharedBoardStatus.state === 'saved'
+      ? `Site saved ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
+      : sharedBoardStatus.state === 'load-failed'
+        ? `Site load failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
+        : null;
 
   if (isWatchRoute) {
-    return <WatchApp flights={state.flights} filters={sharedBoardFilters} isLoading={isLoadingSharedBoard} />;
+    return <WatchApp flights={state.flights} filters={sharedBoardFilters} isLoading={isLoadingSharedBoard} sharedStatus={sharedBoardStatus} />;
   }
 
   return (
@@ -2200,6 +2265,16 @@ export default function App() {
         {copyFeedback && (
           <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
             {copyFeedback}
+          </div>
+        )}
+
+        {sharedBoardStatusLabel && (
+          <div className={`mb-6 rounded-2xl border px-4 py-3 text-sm ${
+            sharedBoardStatus.state === 'save-failed' || sharedBoardStatus.state === 'load-failed'
+              ? 'border-rose-500/20 bg-rose-500/10 text-rose-100'
+              : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+          }`}>
+            {sharedBoardStatusLabel}
           </div>
         )}
 
