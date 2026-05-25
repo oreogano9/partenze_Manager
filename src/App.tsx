@@ -26,6 +26,7 @@ type SharedBoardFilters = {
   filterTypes: PositionType[];
   showFocusOnly: boolean;
   showPast: boolean;
+  searchQuery: string;
   useShiftFilter: boolean;
   shiftStart: string;
   shiftEnd: string;
@@ -34,6 +35,9 @@ type PersistedState = {
   appState: AppState;
   terminalFilter: 'ALL' | 'T1' | 'T3';
   scanTerminal: 'T1' | 'T3';
+  shiftStart: string;
+  shiftEnd: string;
+  useShiftFilter: boolean;
   connectionThreshold: 5 | 10;
 };
 
@@ -358,6 +362,7 @@ const DEFAULT_SHARED_BOARD_FILTERS: SharedBoardFilters = {
   filterTypes: ALL_POSITION_TYPES,
   showFocusOnly: false,
   showPast: true,
+  searchQuery: '',
   useShiftFilter: false,
   shiftStart: '00:00',
   shiftEnd: '23:30',
@@ -409,6 +414,7 @@ const normalizeSharedBoardFilters = (filters?: Partial<SharedBoardFilters>): Sha
     : ALL_POSITION_TYPES,
   showFocusOnly: filters?.showFocusOnly === true,
   showPast: filters?.showPast !== false,
+  searchQuery: typeof filters?.searchQuery === 'string' ? filters.searchQuery : '',
   useShiftFilter: filters?.useShiftFilter === true,
   shiftStart: typeof filters?.shiftStart === 'string' && /^\d{2}:\d{2}$/.test(filters.shiftStart)
     ? filters.shiftStart
@@ -429,6 +435,7 @@ const getSharedBoardFiltersSnapshot = (
   filterTypes: state.filterTypes,
   showFocusOnly: state.showFocusOnly,
   showPast: state.showPast,
+  searchQuery: state.searchQuery,
   useShiftFilter,
   shiftStart,
   shiftEnd,
@@ -472,6 +479,9 @@ const loadPersistedState = (): PersistedState => {
     appState: DEFAULT_APP_STATE,
     terminalFilter: 'ALL',
     scanTerminal: 'T1',
+    shiftStart: defaultShiftStart,
+    shiftEnd: defaultShiftEnd,
+    useShiftFilter: true,
     connectionThreshold: 10,
   };
 
@@ -503,6 +513,13 @@ const loadPersistedState = (): PersistedState => {
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
       scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
+      shiftStart: typeof parsed.shiftStart === 'string' && /^\d{2}:\d{2}$/.test(parsed.shiftStart)
+        ? parsed.shiftStart
+        : defaultShiftStart,
+      shiftEnd: typeof parsed.shiftEnd === 'string' && /^\d{2}:\d{2}$/.test(parsed.shiftEnd)
+        ? parsed.shiftEnd
+        : defaultShiftEnd,
+      useShiftFilter: typeof parsed.useShiftFilter === 'boolean' ? parsed.useShiftFilter : true,
       connectionThreshold: parsed.connectionThreshold === 5 ? 5 : 10,
     };
   } catch (error) {
@@ -948,6 +965,7 @@ const WatchApp: React.FC<{
 
   const visibleFlights = useMemo(() => {
     const now = Date.now();
+    const query = filters.searchQuery.trim().toLowerCase();
     const shiftEndDate = resolveShiftEnd(filters.shiftStart, filters.shiftEnd);
     const shiftLowerBound = new Date(now + 30 * 60000);
     const shiftUpperBound = new Date(shiftEndDate.getTime() + 60 * 60000);
@@ -958,11 +976,16 @@ const WatchApp: React.FC<{
         const flightTime = new Date(flight.std);
         const minutesToSTD = Math.floor((flightTime.getTime() - now) / 60000);
         const positionType = getPositionType(flight.terminal, flight.position);
+        const matchesSearch = !query ||
+          flight.flightNumber.toLowerCase().includes(query) ||
+          flight.destination.toLowerCase().includes(query) ||
+          flight.position.toLowerCase().includes(query);
 
         return (
           (filters.showPast ? flightTime.getTime() >= now - 60 * 60000 : flightTime.getTime() > now) &&
           (filters.terminalFilter === 'ALL' || flight.terminal === filters.terminalFilter) &&
           filters.filterTypes.includes(positionType) &&
+          matchesSearch &&
           (!filters.showFocusOnly || (minutesToSTD >= 15 && minutesToSTD <= 90)) &&
           (!filters.useShiftFilter || (flightTime >= shiftLowerBound && flightTime <= shiftUpperBound))
         );
@@ -1044,17 +1067,17 @@ const WatchApp: React.FC<{
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto flex min-h-screen max-w-[240px] flex-col px-1.5 py-1.5">
+      <div className="flex min-h-screen w-screen max-w-none flex-col px-1.5 py-1.5">
         <header className="sticky top-0 z-10 -mx-1.5 bg-black/95 px-1.5 pb-1.5 pt-0.5">
-          <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-1">
+          <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-1">
             <button
               type="button"
               onClick={goBack}
               disabled={step === 'timeline'}
-              className="flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.07] text-white/75 disabled:opacity-15"
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-white/80 disabled:opacity-15"
               aria-label="Back"
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={17} />
             </button>
             <button
               type="button"
@@ -1073,10 +1096,10 @@ const WatchApp: React.FC<{
                 setSelectedFlightId(null);
                 setStep('destinations');
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.07] text-white/75"
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-white/80"
               aria-label="Search"
             >
-              <Search size={14} />
+              <Search size={17} />
             </button>
           </div>
         </header>
@@ -1180,9 +1203,9 @@ export default function App() {
   const [glossaryQuery, setGlossaryQuery] = useState('');
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
-  const [shiftStart, setShiftStart] = useState(defaultShiftStart);
-  const [shiftEnd, setShiftEnd] = useState(defaultShiftEnd);
-  const [useShiftFilter, setUseShiftFilter] = useState(true);
+  const [shiftStart, setShiftStart] = useState(persistedState.shiftStart);
+  const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
+  const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
@@ -1308,6 +1331,7 @@ export default function App() {
       }
 
       window.localStorage.removeItem(PERSISTED_STATE_KEY);
+      window.localStorage.removeItem(LOCAL_BOARD_BACKUP_KEY);
     }
 
     setState((prev) => ({ ...DEFAULT_APP_STATE, flights: prev.flights }));
@@ -1594,6 +1618,9 @@ export default function App() {
       },
       terminalFilter,
       scanTerminal,
+      shiftStart,
+      shiftEnd,
+      useShiftFilter,
       connectionThreshold,
     };
 
