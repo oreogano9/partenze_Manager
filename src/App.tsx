@@ -339,6 +339,7 @@ const formatTimeOption = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
+const LOCAL_BOARD_BACKUP_KEY = 'partenze-manager-board-backup';
 const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const ADR_SYNC_ENDPOINT = '/api/adr-sync';
@@ -417,6 +418,22 @@ const normalizeSharedBoardFilters = (filters?: Partial<SharedBoardFilters>): Sha
     : DEFAULT_SHARED_BOARD_FILTERS.shiftEnd,
 });
 
+const getSharedBoardFiltersSnapshot = (
+  state: AppState,
+  terminalFilter: 'ALL' | 'T1' | 'T3',
+  useShiftFilter: boolean,
+  shiftStart: string,
+  shiftEnd: string,
+): SharedBoardFilters => ({
+  terminalFilter,
+  filterTypes: state.filterTypes,
+  showFocusOnly: state.showFocusOnly,
+  showPast: state.showPast,
+  useShiftFilter,
+  shiftStart,
+  shiftEnd,
+});
+
 const formatMinutesAgo = (timestamp: number, now: number) => {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   return `${minutes}m ago`;
@@ -479,7 +496,9 @@ const loadPersistedState = (): PersistedState => {
       appState: {
         ...DEFAULT_APP_STATE,
         ...parsed.appState,
-        flights: [],
+        flights: Array.isArray(parsed.appState?.flights)
+          ? normalizeStoredFlights(parsed.appState.flights)
+          : [],
         filterTypes: persistedFilterTypes,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
@@ -489,6 +508,28 @@ const loadPersistedState = (): PersistedState => {
   } catch (error) {
     console.error('Failed to load persisted state', error);
     return fallback;
+  }
+};
+
+const loadLocalBoardBackup = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_BOARD_BACKUP_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as { flights?: Flight[]; filters?: Partial<SharedBoardFilters> };
+    return {
+      flights: Array.isArray(parsed.flights) ? normalizeStoredFlights(parsed.flights) : [],
+      filters: normalizeSharedBoardFilters(parsed.filters),
+    };
+  } catch (error) {
+    console.error('Failed to load local board backup', error);
+    return null;
   }
 };
 
@@ -1126,9 +1167,13 @@ export default function App() {
   defaultShiftEndDate.setTime(roundToNearestHalfHour(new Date()).getTime() + 8 * 60 * 60000);
   const defaultShiftEnd = formatTimeOption(defaultShiftEndDate);
   const persistedState = loadPersistedState();
+  const localBoardBackup = loadLocalBoardBackup();
+  const initialAppState = localBoardBackup && localBoardBackup.flights.length > 0
+    ? { ...persistedState.appState, flights: localBoardBackup.flights }
+    : persistedState.appState;
 
   const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
-  const [state, setState] = useState<AppState>(persistedState.appState);
+  const [state, setState] = useState<AppState>(initialAppState);
   const [glossaryQuery, setGlossaryQuery] = useState('');
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
   const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
@@ -1150,7 +1195,9 @@ export default function App() {
   const [iataSearchIndex, setIataSearchIndex] = useState<Map<string, string>>(new Map());
   const [hasLoadedSharedFlights, setHasLoadedSharedFlights] = useState(false);
   const [canPersistSharedFlights, setCanPersistSharedFlights] = useState(false);
-  const [sharedBoardFilters, setSharedBoardFilters] = useState<SharedBoardFilters>(DEFAULT_SHARED_BOARD_FILTERS);
+  const [sharedBoardFilters, setSharedBoardFilters] = useState<SharedBoardFilters>(
+    localBoardBackup?.filters ?? DEFAULT_SHARED_BOARD_FILTERS,
+  );
   const [adrSyncStatus, setAdrSyncStatus] = useState<AdrSyncStatus | null>(null);
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const calendarMenuRef = useRef<HTMLDivElement>(null);
@@ -1506,9 +1553,10 @@ export default function App() {
         }
 
         if (!cancelled) {
+          const sharedFlights = normalizeStoredFlights(payload.flights ?? []);
           setState((prev) => ({
             ...prev,
-            flights: normalizeStoredFlights(payload.flights ?? []),
+            flights: sharedFlights.length > 0 || prev.flights.length === 0 ? sharedFlights : prev.flights,
           }));
           setSharedBoardFilters(normalizeSharedBoardFilters(payload.filters));
           setCanPersistSharedFlights(true);
@@ -1534,10 +1582,12 @@ export default function App() {
       return;
     }
 
+    const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
+    const flights = normalizeStoredFlights(state.flights);
     const snapshot: PersistedState = {
       appState: {
         ...state,
-        flights: [],
+        flights,
       },
       terminalFilter,
       scanTerminal,
@@ -1545,7 +1595,8 @@ export default function App() {
     };
 
     window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
-  }, [state, terminalFilter, scanTerminal, connectionThreshold]);
+    window.localStorage.setItem(LOCAL_BOARD_BACKUP_KEY, JSON.stringify({ flights, filters }));
+  }, [state, terminalFilter, scanTerminal, connectionThreshold, useShiftFilter, shiftStart, shiftEnd]);
 
   useEffect(() => {
     if (isWatchRoute || !canPersistSharedFlights) {
@@ -1555,15 +1606,7 @@ export default function App() {
     const persistSharedFlights = async () => {
       try {
         const flights = normalizeStoredFlights(state.flights);
-        const filters: SharedBoardFilters = {
-          terminalFilter,
-          filterTypes: state.filterTypes,
-          showFocusOnly: state.showFocusOnly,
-          showPast: state.showPast,
-          useShiftFilter,
-          shiftStart,
-          shiftEnd,
-        };
+        const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
         const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
           method: 'POST',
           headers: {
@@ -1617,15 +1660,7 @@ export default function App() {
           },
           body: JSON.stringify({
             flights: normalizeStoredFlights(stateFlightsRef.current),
-            filters: {
-              terminalFilter,
-              filterTypes: state.filterTypes,
-              showFocusOnly: state.showFocusOnly,
-              showPast: state.showPast,
-              useShiftFilter,
-              shiftStart,
-              shiftEnd,
-            },
+            filters: getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd),
           }),
         });
         const payload = await response.json() as AdrSyncResponse;

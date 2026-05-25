@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import {readFile, writeFile} from 'node:fs/promises';
 import {IncomingMessage, ServerResponse} from 'node:http';
 import path from 'path';
 import {defineConfig} from 'vite';
@@ -8,6 +9,12 @@ import {extractFlightsWithOpenAI} from './api/_openaiVision.js';
 import type {TerminalType} from './src/types';
 
 const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
+const localSharedBoardPath = path.resolve(__dirname, '.partenze-manager.local-board.json');
+
+type LocalSharedBoard = {
+  flights?: unknown[];
+  filters?: unknown;
+};
 
 const readBody = (req: IncomingMessage) =>
   new Promise<string>((resolve, reject) => {
@@ -23,6 +30,23 @@ const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => 
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
+};
+
+const readLocalSharedBoard = async (): Promise<LocalSharedBoard> => {
+  try {
+    const raw = await readFile(localSharedBoardPath, 'utf8');
+    const parsed = JSON.parse(raw) as LocalSharedBoard;
+    return {
+      flights: Array.isArray(parsed.flights) ? parsed.flights : [],
+      filters: parsed.filters,
+    };
+  } catch {
+    return {flights: []};
+  }
+};
+
+const writeLocalSharedBoard = async (payload: LocalSharedBoard) => {
+  await writeFile(localSharedBoardPath, JSON.stringify(payload, null, 2), 'utf8');
 };
 
 export default defineConfig({
@@ -57,6 +81,40 @@ export default defineConfig({
             const message = error instanceof Error ? error.message : 'Blob upload failed';
             sendJson(res, 500, {error: message});
           }
+        });
+
+        server.middlewares.use('/api/flights', async (req, res, next) => {
+          if (req.method === 'GET') {
+            try {
+              sendJson(res, 200, await readLocalSharedBoard());
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Failed to load shared flights';
+              sendJson(res, 500, {error: message});
+            }
+            return;
+          }
+
+          if (req.method === 'POST') {
+            try {
+              const rawBody = await readBody(req);
+              const body = rawBody ? (JSON.parse(rawBody) as {flights?: unknown; filters?: unknown}) : {};
+              const flights = Array.isArray(body.flights) ? body.flights : [];
+              const filters = body.filters && typeof body.filters === 'object' ? body.filters : undefined;
+              await writeLocalSharedBoard({flights, filters});
+              sendJson(res, 200, {ok: true});
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Failed to save shared flights';
+              sendJson(res, 500, {error: message});
+            }
+            return;
+          }
+
+          if (req.method) {
+            sendJson(res, 405, {error: 'Method not allowed'});
+            return;
+          }
+
+          next();
         });
 
         server.middlewares.use('/api/extract-flights', async (req, res, next) => {

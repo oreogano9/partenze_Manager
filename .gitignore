@@ -5,3 +5,4 @@ dist
 .env.local
 .env.*.local
 .vercel
+.partenze-manager.local-board.json
