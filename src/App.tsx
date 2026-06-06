@@ -61,6 +61,8 @@ type AdrSyncStatus = {
   at: number;
 };
 
+type CalendarExportKind = 'all' | PositionType;
+
 type SharedBoardStatus = {
   state: 'idle' | 'loaded' | 'saved' | 'load-failed' | 'save-failed';
   at: number;
@@ -92,7 +94,10 @@ type WatchStep = 'timeline' | 'destinations' | 'flights' | 'detail';
 
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
-  const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
+  const match =
+    compact.match(/^([A-Z]{1,3})(\d{1,4}[A-Z]?)$/) ||
+    compact.match(/^([A-Z]\d[A-Z]?)(\d{1,4}[A-Z]?)$/) ||
+    compact.match(/^(\d[A-Z]{1,2})(\d{1,4}[A-Z]?)$/);
   if (!match) {
     const salvageMatch = compact.match(/^([A-Z0-9]{2,3})([A-Z0-9]{1,5})$/);
     if (salvageMatch) {
@@ -182,6 +187,7 @@ const pickPreferredValue = (current?: string, incoming?: string) => {
 const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => ({
   ...base,
   importedAt: base.importedAt || incoming.importedAt,
+  doneAt: base.doneAt || incoming.doneAt,
   calendarExportedAt: base.calendarExportedAt,
   calendarExportFingerprint: base.calendarExportFingerprint,
   carrier: pickPreferredValue(base.carrier, incoming.carrier) || undefined,
@@ -354,10 +360,11 @@ const formatTimeOption = (date: Date) =>
 
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
 const LOCAL_BOARD_BACKUP_KEY = 'partenze-manager-board-backup';
-const IMPORTED_FLIGHT_TTL_MS = 14 * 60 * 60 * 1000;
+const IMPORTED_FLIGHT_TTL_MS = 16 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const ADR_SYNC_ENDPOINT = '/api/adr-sync';
 const ADR_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const ADR_LIVE_SYNC_ENABLED = false;
 const WATCH_SHARED_REFRESH_MS = 20 * 1000;
 const STATUS_TICK_MS = 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
@@ -379,8 +386,7 @@ const DEFAULT_SHARED_BOARD_FILTERS: SharedBoardFilters = {
   shiftEnd: '23:30',
 };
 
-const resolveShiftEnd = (start: string, end: string) => {
-  const now = new Date();
+const resolveShiftWindow = (start: string, end: string, now = new Date()) => {
   const [startHours, startMinutes] = start.split(':').map(Number);
   const [endHours, endMinutes] = end.split(':').map(Number);
   const shiftStart = new Date(now);
@@ -392,7 +398,12 @@ const resolveShiftEnd = (start: string, end: string) => {
     shiftEnd.setDate(shiftEnd.getDate() + 1);
   }
 
-  return shiftEnd;
+  if (now.getTime() < shiftStart.getTime() && shiftEnd.getDate() !== shiftStart.getDate()) {
+    shiftStart.setDate(shiftStart.getDate() - 1);
+    shiftEnd.setDate(shiftEnd.getDate() - 1);
+  }
+
+  return { shiftStart, shiftEnd };
 };
 
 const isImportedFlightExpired = (flight: Flight) => {
@@ -978,8 +989,7 @@ const WatchApp: React.FC<{
   const visibleFlights = useMemo(() => {
     const now = Date.now();
     const query = filters.searchQuery.trim().toLowerCase();
-    const shiftEndDate = resolveShiftEnd(filters.shiftStart, filters.shiftEnd);
-    const shiftLowerBound = new Date(now + 30 * 60000);
+    const { shiftStart: shiftLowerBound, shiftEnd: shiftEndDate } = resolveShiftWindow(filters.shiftStart, filters.shiftEnd, new Date(now));
     const shiftUpperBound = new Date(shiftEndDate.getTime() + 60 * 60000);
 
     return flights
@@ -1312,8 +1322,7 @@ export default function App() {
         const minutesToSTD = Math.floor((new Date(f.std).getTime() - Date.now()) / 60000);
         const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
         const matchesFocus = !state.showFocusOnly || isFocused;
-        const shiftEndDate = resolveShiftEnd(shiftStart, shiftEnd);
-        const shiftLowerBound = new Date(Date.now() + 30 * 60000);
+        const { shiftStart: shiftLowerBound, shiftEnd: shiftEndDate } = resolveShiftWindow(shiftStart, shiftEnd);
         const shiftUpperBound = new Date(shiftEndDate.getTime() + 60 * 60000);
         const flightTime = new Date(f.std);
         const matchesShift = !useShiftFilter || (flightTime >= shiftLowerBound && flightTime <= shiftUpperBound);
@@ -1341,6 +1350,17 @@ export default function App() {
           : [...f.tags, tag];
         return { ...f, tags };
       })
+    }));
+  };
+
+  const handleDoneToggle = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      flights: prev.flights.map(flight => (
+        flight.id === id
+          ? { ...flight, doneAt: flight.doneAt ? undefined : new Date().toISOString() }
+          : flight
+      )),
     }));
   };
 
@@ -1457,8 +1477,8 @@ export default function App() {
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
+    const files = Array.from(event.target.files ?? []) as File[];
+    if (files.length === 0) {
       return;
     }
 
@@ -1467,33 +1487,35 @@ export default function App() {
     setOcrProgress(0);
 
     try {
-      const result = await extractFlightsFromImage(file, scanTerminal, progress => {
-        setOcrProgress(progress);
-      });
+      for (const [fileIndex, file] of files.entries()) {
+        const result = await extractFlightsFromImage(file, scanTerminal, progress => {
+          setOcrProgress(Math.round(((fileIndex + progress / 100) / files.length) * 100));
+        });
 
-      const previewUrl = URL.createObjectURL(file);
-      setOcrReview(prev => {
-        const nextFlights = result.flights.map(flight => ({
-          ...flight,
-          flightNumber: normalizeFlightCode(flight.flightNumber),
-          selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
-        }));
+        const previewUrl = URL.createObjectURL(file);
+        setOcrReview(prev => {
+          const nextFlights = result.flights.map(flight => ({
+            ...flight,
+            flightNumber: normalizeFlightCode(flight.flightNumber),
+            selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
+          }));
 
-        if (!prev) {
-          setMobileOcrPanel('flights');
+          if (!prev) {
+            setMobileOcrPanel('flights');
+            return {
+              text: result.text,
+              flights: nextFlights,
+              previews: [{ previewUrl, fileName: file.name }],
+            };
+          }
+
           return {
-            text: result.text,
-            flights: nextFlights,
-            previews: [{ previewUrl, fileName: file.name }],
+            text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
+            flights: mergeOcrFlightLists(prev.flights, nextFlights),
+            previews: [...prev.previews, { previewUrl, fileName: file.name }],
           };
-        }
-
-        return {
-          text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
-          flights: mergeOcrFlightLists(prev.flights, nextFlights),
-          previews: [...prev.previews, { previewUrl, fileName: file.name }],
-        };
-      });
+        });
+      }
     } catch (error) {
       console.error('OCR extraction failed', error);
       const message = error instanceof Error ? error.message : 'OCR failed on this image.';
@@ -1510,12 +1532,32 @@ export default function App() {
     }
   };
 
-  const handleCalendarExport = async (type: 'ics' | 'copy') => {
+  const getCalendarExportFlights = (kind: CalendarExportKind) => (
+    kind === 'all'
+      ? filteredFlights
+      : filteredFlights.filter((flight) => getPositionType(flight.terminal, flight.position) === kind)
+  );
+
+  const getCalendarExportName = (kind: CalendarExportKind) => {
+    if (kind === 'Scivolo') return 'scivoli';
+    if (kind === 'Carosello') return 'caroselli';
+    if (kind === 'Baia') return 'baie';
+    return 'flights';
+  };
+
+  const handleCalendarExport = async (type: 'ics' | 'copy', kind: CalendarExportKind = 'all') => {
     if (filteredFlights.length === 0) return;
+
+    const exportableFlights = getCalendarExportFlights(kind);
+    if (exportableFlights.length === 0) {
+      setCopyFeedback(t.noCalendarChangesToExport);
+      setShowCalendarMenu(false);
+      return;
+    }
 
     const flightsToExport = filteredFlights.filter(
       (flight) => flight.calendarExportFingerprint !== getCalendarExportFingerprint(flight),
-    );
+    ).filter((flight) => exportableFlights.some((exportFlight) => exportFlight.id === flight.id));
     const updatedFlightIds = new Set<string>(
       flightsToExport
         .filter((flight) => Boolean(flight.calendarExportFingerprint))
@@ -1531,7 +1573,10 @@ export default function App() {
     try {
       let exportSucceeded = false;
       if (type === 'ics') {
-        exportSucceeded = await downloadICS(flightsToExport.map((flight) => ({...flight})), {updatedFlightIds});
+        exportSucceeded = await downloadICS(flightsToExport.map((flight) => ({...flight})), {
+          updatedFlightIds,
+          filename: `${getCalendarExportName(kind)}.ics`,
+        });
         setCopyFeedback(null);
       } else {
         const copied = await copyFlightsToClipboard(flightsToExport.map((flight) => ({...flight})), {updatedFlightIds});
@@ -1611,11 +1656,20 @@ export default function App() {
 
         if (!cancelled) {
           const sharedFlights = normalizeStoredFlights(payload.flights ?? []);
+          const sharedFilters = normalizeSharedBoardFilters(payload.filters);
           setState((prev) => ({
             ...prev,
             flights: sharedFlights.length > 0 || prev.flights.length === 0 ? sharedFlights : prev.flights,
+            filterTypes: sharedFilters.filterTypes,
+            showFocusOnly: sharedFilters.showFocusOnly,
+            showPast: sharedFilters.showPast,
+            searchQuery: sharedFilters.searchQuery,
           }));
-          setSharedBoardFilters(normalizeSharedBoardFilters(payload.filters));
+          setTerminalFilter(sharedFilters.terminalFilter);
+          setUseShiftFilter(sharedFilters.useShiftFilter);
+          setShiftStart(sharedFilters.shiftStart);
+          setShiftEnd(sharedFilters.shiftEnd);
+          setSharedBoardFilters(sharedFilters);
           setSharedBoardStatus({
             state: 'loaded',
             at: Date.now(),
@@ -1727,7 +1781,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!hasLoadedSharedFlights || state.flights.length === 0) {
+    if (!ADR_LIVE_SYNC_ENABLED || !hasLoadedSharedFlights || state.flights.length === 0) {
       return;
     }
 
@@ -2093,6 +2147,7 @@ export default function App() {
             ref={fileInputRef}
             onChange={handleFileUpload}
             accept="image/*"
+            multiple
             className="hidden"
           />
           <input
@@ -2399,6 +2454,7 @@ export default function App() {
                   urgencyColor={urgencyColor}
                   nextUrgencyColor={nextUrgencyColor}
                   focusIndex={focusIndex > 0 ? focusIndex : undefined}
+                  onToggleDone={handleDoneToggle}
                 />
               );
             })
@@ -2515,6 +2571,30 @@ export default function App() {
                           <span className="text-[10px] text-white/40">{t.downloadBulkImport}</span>
                         </div>
                       </button>
+                      <div className="mt-1 grid grid-cols-3 gap-1 px-1">
+                        {([
+                          ['Scivolo', t.scivoli],
+                          ['Carosello', t.caroselli],
+                          ['Baia', t.baie],
+                        ] as const).map(([kind, label]) => {
+                          const count = getCalendarExportFlights(kind).filter(
+                            (flight) => flight.calendarExportFingerprint !== getCalendarExportFingerprint(flight),
+                          ).length;
+
+                          return (
+                            <button
+                              key={kind}
+                              type="button"
+                              onClick={() => handleCalendarExport('ics', kind)}
+                              disabled={count === 0}
+                              className="rounded-xl border border-white/10 bg-white/[0.03] px-2 py-2 text-[9px] font-black uppercase tracking-wide text-white/60 transition-all hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              {label}
+                              <span className="ml-1 text-white/30">{count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div className="px-3 py-2 bg-white/[0.02] rounded-xl mt-1">
                         <p className="text-[9px] text-white/30 leading-relaxed italic">
                           {t.mobileIcsHint}

@@ -4,7 +4,7 @@ import { Flight } from '../types';
 import { getPositionType, getPrinterTags, requiresContainerDamageCheck, requiresEmptyCartNote } from '../constants';
 import { getMinutesToTarget, getUrgencyColor, formatHHmm, formatDuration } from '../utils/timeUtils';
 import { getCommonIataCityName, getCommonIataLocationName, getIataCityName, getIataLocationName } from '../utils/iataLookup';
-import { ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Clock as ClockIcon, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FlightCardExpandedContentProps {
@@ -13,6 +13,7 @@ interface FlightCardExpandedContentProps {
   t: any;
   language: 'it' | 'en';
   confidence?: number;
+  onToggleDone?: () => void;
 }
 
 const CODE_LABELS = {
@@ -272,6 +273,7 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
   t,
   language,
   confidence,
+  onToggleDone,
 }) => {
   const [destinationLocation, setDestinationLocation] = useState('');
   const [showCodeExplanations, setShowCodeExplanations] = useState(false);
@@ -307,6 +309,23 @@ export const FlightCardExpandedContent: React.FC<FlightCardExpandedContentProps>
           <span className="text-[10px] text-white/50 font-bold uppercase tracking-wider">{posType}</span>
         </div>
         <div className="flex items-center gap-2">
+          {onToggleDone && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleDone();
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
+                flight.doneAt
+                  ? 'border-emerald-400/25 bg-emerald-500/15 text-emerald-200'
+                  : 'border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/[0.07] hover:text-white'
+              }`}
+            >
+              <Check size={12} />
+              {flight.doneAt ? t.done : t.markDone}
+            </button>
+          )}
           {printerTags.map((printerTag) => (
             <span key={printerTag} className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-200">
               {printerTag}
@@ -431,11 +450,12 @@ interface FlightCardProps {
   urgencyColor?: string;
   nextUrgencyColor?: string;
   focusIndex?: number;
+  onToggleDone?: (id: string) => void;
 }
 
 export const FlightCard: React.FC<FlightCardProps> = ({ 
   flight, t, language, isConnectedToNext, isConnectedToPrev, 
-  urgencyColor: propUrgencyColor, nextUrgencyColor, focusIndex
+  urgencyColor: propUrgencyColor, nextUrgencyColor, focusIndex, onToggleDone
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const minutesToTarget = getMinutesToTarget(flight.std);
@@ -486,7 +506,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   return (
     <motion.div 
       layout
-      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4 overflow-visible ${isExpanded ? 'z-30' : 'z-0'}`}
+      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4 overflow-visible ${isExpanded ? 'z-30' : isConnectedToNext ? 'z-20' : 'z-0'} ${flight.doneAt ? 'opacity-60' : ''}`}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
     >
@@ -507,10 +527,10 @@ export const FlightCard: React.FC<FlightCardProps> = ({
               {isConnectedToNext && !isExpanded && (
                 <motion.div 
                   initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.6 }}
+                  animate={{ opacity: 0.8 }}
                   exit={{ opacity: 0, transition: { duration: 0 } }}
                   transition={{ delay: 0.5, duration: 0.5 }}
-                  className="absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-[72px] z-10"
+                  className="pointer-events-none absolute left-1/2 top-full z-40 h-[72px] w-1.5 -translate-x-1/2"
                   style={{ 
                     background: `linear-gradient(to bottom, ${urgencyColor}, ${nextUrgencyColor || urgencyColor})`
                   }}
@@ -577,6 +597,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
               posType={posType}
               t={t}
               language={language}
+              onToggleDone={onToggleDone ? () => onToggleDone(flight.id) : undefined}
             />
           </motion.div>
         )}

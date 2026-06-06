@@ -7,6 +7,7 @@ export type OCRSourceType = 'sheet' | 'bay_screen';
 export interface Flight {
   id: string;
   importedAt?: string;
+  doneAt?: string;
   calendarExportedAt?: string;
   calendarExportFingerprint?: string;
   carrier?: string;

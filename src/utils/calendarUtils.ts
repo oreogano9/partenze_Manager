@@ -4,6 +4,7 @@ import { getIataLocationName } from './iataLookup';
 
 type CalendarExportOptions = {
   updatedFlightIds?: Set<string>;
+  filename?: string;
 };
 
 const formatLocalDate = (date: Date) => {
@@ -193,7 +194,7 @@ export const downloadICS = async (flights: Flight[], options: CalendarExportOpti
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', 'flights.ics');
+  link.setAttribute('download', options.filename ?? 'flights.ics');
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
