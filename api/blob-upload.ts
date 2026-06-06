@@ -1,10 +1,15 @@
 import {handleUpload} from '@vercel/blob/client';
-
-const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
+import { getBlobTokenInfo, missingBlobTokenMessage } from './_blobConfig.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({error: 'Method not allowed'});
+    return;
+  }
+
+  const { token: blobToken } = getBlobTokenInfo();
+  if (!blobToken) {
+    res.status(500).json({error: missingBlobTokenMessage});
     return;
   }
 

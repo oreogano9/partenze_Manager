@@ -7,7 +7,7 @@ import { formatDuration, formatHHmm, getMinutesToTarget, getUrgencyColor } from 
 import { copyFlightsToClipboard, downloadICS, getCalendarExportFingerprint } from './utils/calendarUtils';
 import { extractFlightsFromImage } from './services/ocrService';
 import { getCommonIataLocationName, getIataLocationName, getIataSearchIndex } from './utils/iataLookup';
-import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft } from 'lucide-react';
+import { Calendar as CalendarIcon, Plane, Search, X, Download, Copy, Camera, Loader2, ScanText, TriangleAlert, Plus, Clock as ClockIcon, ChevronDown, ChevronUp, Settings, ArrowLeft, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
@@ -919,7 +919,9 @@ const WatchFlightCard: React.FC<{
     <button
       type="button"
       onClick={onClick}
-      className="grid min-h-12 w-full grid-cols-[2.65rem_1fr] gap-2 rounded-md bg-white/[0.055] px-1.5 py-1.5 text-left active:scale-[0.99]"
+      className={`grid min-h-12 w-full grid-cols-[2.65rem_1fr] gap-2 rounded-md px-1.5 py-1.5 text-left active:scale-[0.99] ${
+        flight.doneAt ? 'bg-emerald-500/10 opacity-60' : 'bg-white/[0.055]'
+      }`}
     >
       <div
         className="flex h-full min-h-10 flex-col items-center justify-center rounded text-white"
@@ -935,7 +937,10 @@ const WatchFlightCard: React.FC<{
         </div>
         <div className="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] font-bold leading-none text-white/50">
           <span className="truncate">{flight.flightNumber}</span>
-          <span className="shrink-0 text-white/65">{targetLabel}</span>
+          <span className="flex shrink-0 items-center gap-1 text-white/65">
+            {flight.doneAt && <Check size={10} className="text-emerald-200" />}
+            {targetLabel}
+          </span>
         </div>
         {!compact && (
           <div className="mt-1 flex items-center justify-between gap-1 text-[9px] font-bold leading-none text-white/30">
@@ -981,7 +986,8 @@ const WatchApp: React.FC<{
   filters: SharedBoardFilters;
   isLoading: boolean;
   sharedStatus: SharedBoardStatus;
-}> = ({ flights, filters, isLoading, sharedStatus }) => {
+  onToggleDone: (id: string) => void;
+}> = ({ flights, filters, isLoading, sharedStatus, onToggleDone }) => {
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
@@ -1178,23 +1184,36 @@ const WatchApp: React.FC<{
               ))}
             </div>
           ) : step === 'detail' && selectedFlight ? (
-            <div className="space-y-1.5">
-              <div className="rounded-md bg-white/[0.055] p-2">
-                <div className="grid grid-cols-[3.25rem_1fr] gap-2">
-                  <div className="rounded bg-emerald-500 px-1.5 py-2 text-center text-black">
-                    <div className="text-3xl font-black leading-none">{selectedFlight.position || 'X'}</div>
-                    <div className="mt-0.5 text-[10px] font-black leading-none">{selectedFlight.terminal}</div>
+            <div className="space-y-2">
+              <div className={`rounded-lg p-2.5 ${selectedFlight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.065]'}`}>
+                <div className="grid grid-cols-[4.35rem_1fr] gap-2">
+                  <div className="flex min-h-20 flex-col items-center justify-center rounded-md bg-emerald-500 px-1 text-center text-black">
+                    <div className="text-[2.55rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
+                    <div className="mt-1 text-xs font-black leading-none">{selectedFlight.terminal}</div>
                   </div>
                   <div className="min-w-0 self-center">
-                    <div className="truncate text-2xl font-black leading-none text-white">{selectedFlight.destination}</div>
-                    <div className="mt-1 truncate text-sm font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
-                    <div className="mt-2 text-2xl font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
-                    <div className="mt-1 text-[11px] font-bold leading-none text-white/50">
+                    <div className="truncate text-[2rem] font-black leading-none text-white">{selectedFlight.destination}</div>
+                    <div className="mt-1 truncate text-base font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
+                    <div className="mt-2 text-[2.25rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
+                    <div className="mt-1 text-xs font-bold leading-none text-white/50">
                       {formatDuration(getMinutesToTarget(selectedFlight.std))}
                     </div>
                   </div>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => onToggleDone(selectedFlight.id)}
+                className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-lg text-sm font-black uppercase tracking-wide ${
+                  selectedFlight.doneAt
+                    ? 'bg-emerald-500 text-black'
+                    : 'bg-white text-black'
+                }`}
+              >
+                <Check size={18} />
+                {selectedFlight.doneAt ? 'Fatto' : 'Chiudi volo'}
+              </button>
 
               <div className="rounded-md bg-white/[0.04] px-2 py-1.5 text-[11px] font-bold leading-snug text-white/70">
                 <div className="truncate text-white">
@@ -1362,6 +1381,55 @@ export default function App() {
           : flight
       )),
     }));
+  };
+
+  const persistSharedBoardSnapshot = async (flights: Flight[], filters: SharedBoardFilters) => {
+    try {
+      const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ flights, filters }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to save shared flights');
+      }
+
+      const payload = await response.json().catch(() => ({})) as SharedFlightsResponse;
+      setSharedBoardStatus({
+        state: 'saved',
+        at: Date.now(),
+        count: flights.length,
+        savedAt: payload.savedAt,
+      });
+    } catch (error) {
+      console.error('Failed to save shared flights', error);
+      setSharedBoardStatus({
+        state: 'save-failed',
+        at: Date.now(),
+        message: error instanceof Error ? error.message : 'Failed to save shared flights',
+        count: flights.length,
+      });
+    }
+  };
+
+  const handleWatchDoneToggle = (id: string) => {
+    setState(prev => {
+      const nextFlights = prev.flights.map(flight => (
+        flight.id === id
+          ? { ...flight, doneAt: flight.doneAt ? undefined : new Date().toISOString() }
+          : flight
+      ));
+      void persistSharedBoardSnapshot(normalizeStoredFlights(nextFlights), sharedBoardFilters);
+
+      return {
+        ...prev,
+        flights: nextFlights,
+      };
+    });
   };
 
   const togglePast = () => {
@@ -1733,37 +1801,9 @@ export default function App() {
     }
 
     const persistSharedFlights = async () => {
-      try {
-        const flights = normalizeStoredFlights(state.flights);
-        const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
-        const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ flights, filters }),
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error || 'Failed to save shared flights');
-        }
-        const payload = await response.json().catch(() => ({})) as SharedFlightsResponse;
-        setSharedBoardStatus({
-          state: 'saved',
-          at: Date.now(),
-          count: flights.length,
-          savedAt: payload.savedAt,
-        });
-      } catch (error) {
-        console.error('Failed to save shared flights', error);
-        setSharedBoardStatus({
-          state: 'save-failed',
-          at: Date.now(),
-          message: error instanceof Error ? error.message : 'Failed to save shared flights',
-          count: state.flights.length,
-        });
-      }
+      const flights = normalizeStoredFlights(state.flights);
+      const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
+      await persistSharedBoardSnapshot(flights, filters);
     };
 
     void persistSharedFlights();
@@ -1973,7 +2013,15 @@ export default function App() {
         : null;
 
   if (isWatchRoute) {
-    return <WatchApp flights={state.flights} filters={sharedBoardFilters} isLoading={isLoadingSharedBoard} sharedStatus={sharedBoardStatus} />;
+    return (
+      <WatchApp
+        flights={state.flights}
+        filters={sharedBoardFilters}
+        isLoading={isLoadingSharedBoard}
+        sharedStatus={sharedBoardStatus}
+        onToggleDone={handleWatchDoneToggle}
+      />
+    );
   }
 
   return (

@@ -1,13 +1,11 @@
 import { get, put } from '@vercel/blob';
+import { getBlobTokenInfo, missingBlobTokenMessage, SHARED_BOARD_BLOB_PATH } from './_blobConfig.js';
 
 type SharedBoardPayload = {
   flights?: unknown;
   filters?: unknown;
   savedAt?: unknown;
 };
-
-const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
-const SHARED_BOARD_BLOB_PATH = 'partenze-manager/shared-board.json';
 
 const readBody = (body: unknown) => {
   if (!body) {
@@ -26,8 +24,10 @@ const ensureFlightArray = (value: unknown) => (Array.isArray(value) ? value : []
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
+  const { token: blobToken } = getBlobTokenInfo();
+
   if (!blobToken) {
-    res.status(500).json({ error: 'Missing BLOB_READ_WRITE_TOKEN' });
+    res.status(500).json({ error: missingBlobTokenMessage });
     return;
   }
 

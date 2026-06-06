@@ -1,5 +1,6 @@
 import { get, put } from '@vercel/blob';
 import type { Flight } from '../src/types';
+import { getBlobTokenInfo, missingBlobTokenMessage, SHARED_BOARD_BLOB_PATH } from './_blobConfig.js';
 
 type AdrDirection = 'departure' | 'arrival';
 
@@ -18,8 +19,6 @@ type SharedBoardPayload = {
   filters?: unknown;
 };
 
-const blobToken = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOBV1_READ_WRITE_TOKEN;
-const SHARED_BOARD_BLOB_PATH = 'partenze-manager/shared-board.json';
 const ADR_BASE_URL = 'https://www.adr.it/pax-fco-voli-in-tempo-reale';
 const ROME_TIME_ZONE = 'Europe/Rome';
 
@@ -188,6 +187,7 @@ const fetchAdrFlights = async (direction: AdrDirection, dateKey: string, interva
 };
 
 const readSharedBoard = async (): Promise<SharedBoardPayload> => {
+  const { token: blobToken } = getBlobTokenInfo();
   const blob = await get(SHARED_BOARD_BLOB_PATH, {
     access: 'private',
     token: blobToken,
@@ -210,6 +210,7 @@ const readSharedBoard = async (): Promise<SharedBoardPayload> => {
 };
 
 const writeSharedBoard = async (flights: Flight[], filters: unknown) => {
+  const { token: blobToken } = getBlobTokenInfo();
   await put(
     SHARED_BOARD_BLOB_PATH,
     JSON.stringify({ flights, filters }),
@@ -229,8 +230,10 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  const { token: blobToken } = getBlobTokenInfo();
+
   if (!blobToken) {
-    res.status(500).json({ error: 'Missing BLOB_READ_WRITE_TOKEN' });
+    res.status(500).json({ error: missingBlobTokenMessage });
     return;
   }
 

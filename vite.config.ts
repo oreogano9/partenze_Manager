@@ -121,6 +121,43 @@ export default defineConfig({
           next();
         });
 
+        server.middlewares.use('/api/blob-diagnostics', async (req, res, next) => {
+          if (req.method !== 'GET' && req.method !== 'POST') {
+            if (req.method) {
+              sendJson(res, 405, {error: 'Method not allowed'});
+              return;
+            }
+
+            next();
+            return;
+          }
+
+          try {
+            const localBoard = await readLocalSharedBoard();
+            sendJson(res, 200, {
+              ok: true,
+              mode: 'local-dev-file',
+              hasBlobReadWriteToken: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+              hasBlobV1ReadWriteToken: Boolean(process.env.BLOBV1_READ_WRITE_TOKEN),
+              activeTokenSource: process.env.BLOB_READ_WRITE_TOKEN
+                ? 'BLOB_READ_WRITE_TOKEN'
+                : process.env.BLOBV1_READ_WRITE_TOKEN
+                  ? 'BLOBV1_READ_WRITE_TOKEN'
+                  : null,
+              sharedBoardPath: localSharedBoardPath,
+              sharedBoardExists: true,
+              sharedFlightCount: Array.isArray(localBoard.flights) ? localBoard.flights.length : 0,
+              sharedSavedAt: localBoard.savedAt ?? null,
+              canReadSharedBoard: true,
+              canWriteProbe: req.method === 'POST',
+              canReadProbe: req.method === 'POST',
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Blob diagnostics failed';
+            sendJson(res, 500, {ok: false, mode: 'local-dev-file', error: message});
+          }
+        });
+
         server.middlewares.use('/api/extract-flights', async (req, res, next) => {
           if (req.method !== 'POST') {
             next();
