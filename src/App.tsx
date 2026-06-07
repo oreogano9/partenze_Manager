@@ -1378,7 +1378,14 @@ const WatchApp: React.FC<{
             </div>
           ) : step === 'detail' && selectedFlight ? (
             <div className="space-y-2">
-              <div className={`rounded-xl p-2.5 ${selectedFlight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.065]'}`}>
+              <button
+                type="button"
+                onClick={() => onToggleDone(selectedFlight.id)}
+                className={`relative w-full rounded-xl p-2.5 text-left active:scale-[0.99] ${
+                  selectedFlight.doneAt ? 'bg-emerald-500/10 ring-1 ring-emerald-300/40' : 'bg-white/[0.065]'
+                }`}
+                aria-label={selectedFlight.doneAt ? 'Riapri volo' : 'Chiudi volo'}
+              >
                 <div className="grid grid-cols-[4.8rem_1fr] gap-2">
                   <div className="flex min-h-[5.7rem] flex-col items-center justify-center rounded-lg bg-emerald-500 px-1 text-center text-black">
                     <div className="text-[2.85rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
@@ -1393,32 +1400,28 @@ const WatchApp: React.FC<{
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onToggleDone(selectedFlight.id)}
-                className={`ml-auto flex h-12 w-12 items-center justify-center rounded-xl ${
-                  selectedFlight.doneAt
-                    ? 'bg-emerald-500 text-black'
-                    : 'bg-white/[0.09] text-white/80'
-                }`}
-                aria-label={selectedFlight.doneAt ? 'Riapri volo' : 'Chiudi volo'}
-              >
-                <Check size={22} strokeWidth={3} />
+                <div className="mt-2 pr-9 text-xs font-bold leading-snug text-white/70">
+                  <div className="truncate text-white">
+                    <WatchLocationName destination={selectedFlight.destination} />
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-1 text-white/45">
+                    <span>{getPositionType(selectedFlight.terminal, selectedFlight.position)}</span>
+                    {selectedFlight.tot && <span className="truncate text-emerald-200">{selectedFlight.tot}</span>}
+                  </div>
+                </div>
+                {selectedFlight.doneAt && (
+                  <div className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-black">
+                    <Check size={17} strokeWidth={3} />
+                  </div>
+                )}
               </button>
 
-              <div className="rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs font-bold leading-snug text-white/70">
-                <div className="truncate text-white">
-                  <WatchLocationName destination={selectedFlight.destination} />
+              {(selectedFlight.richiesta || selectedFlight.fc) && (
+                <div className="rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs font-bold leading-snug text-white/70">
+                  {selectedFlight.richiesta && <div className="mt-1 line-clamp-3 break-words">{selectedFlight.richiesta}</div>}
+                  {selectedFlight.fc && <div className="mt-1 text-cyan-200">FC {selectedFlight.fc}</div>}
                 </div>
-                <div className="mt-1 flex items-center justify-between gap-1 text-white/45">
-                  <span>{getPositionType(selectedFlight.terminal, selectedFlight.position)}</span>
-                  {selectedFlight.tot && <span className="truncate text-emerald-200">{selectedFlight.tot}</span>}
-                </div>
-                {selectedFlight.richiesta && <div className="mt-1 line-clamp-3 break-words">{selectedFlight.richiesta}</div>}
-                {selectedFlight.fc && <div className="mt-1 text-cyan-200">FC {selectedFlight.fc}</div>}
-              </div>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">
