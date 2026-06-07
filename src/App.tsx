@@ -1113,13 +1113,7 @@ const WatchApp: React.FC<{
 
   const visibleFlights = watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights;
   const hasHiddenFlights = !isLoading && flights.length > 0 && baseVisibleFlights.length === 0;
-  const statusLabel = sharedStatus.state === 'load-failed'
-    ? `Load fail${getStatusMessageSuffix(sharedStatus.message)}`
-    : sharedStatus.state === 'loaded'
-      ? `${visibleFlights.length}/${flights.length}`
-      : sharedStatus.state === 'saved'
-        ? `${visibleFlights.length}/${flights.length}`
-        : `${visibleFlights.length}/${flights.length}`;
+  const statusLabel = `${visibleFlights.length}/${flights.length}`;
 
   const destinations = useMemo(() => {
     const grouped = new Map<string, Flight[]>();
@@ -1218,9 +1212,7 @@ const WatchApp: React.FC<{
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen w-screen max-w-none flex-col px-1 py-1">
-        <div className={`mb-1 rounded-md px-1.5 py-1 text-center text-[10px] font-black ${
-          sharedStatus.state === 'load-failed' ? 'bg-rose-500/15 text-rose-200' : 'bg-white/[0.045] text-white/35'
-        }`}>
+        <div className="mb-1 rounded-md bg-white/[0.045] px-1.5 py-1 text-center text-[10px] font-black text-white/35">
           {statusLabel}
         </div>
         <header className="sticky top-0 z-10 -mx-1 bg-black/95 px-1 pb-1.5 pt-0.5">
