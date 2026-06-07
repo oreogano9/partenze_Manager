@@ -275,6 +275,9 @@ const getMessageText = (content: unknown) => {
 
 export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTerminal?: TerminalType): Promise<OCRExtractionResult> => {
   const apiKey = process.env.OPENAI_API_KEY;
+  const terminalInstruction = preferredTerminal
+    ? `This image should be treated as terminal ${preferredTerminal} unless it clearly says otherwise.`
+    : 'Do not assume T1 or T3 when the image does not clearly show a terminal; leave terminal blank if unsure.';
 
   if (!apiKey) {
     throw new Error('Missing OPENAI_API_KEY');
@@ -301,7 +304,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Normalize flight numbers so forms like "FC2355", "FC 2355", and "FC-2355" all resolve to the same flight code value "FC 2355". Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". If this is a live bay screen, use the screen header bay as position for all rows when appropriate, keep only flight code, destination if visible, bay/position, and the departure time. If multiple times appear on a bay-screen row, std must be the one furthest in the future, usually the repeated later time, not the earlier baggage-opening time. Many paper sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. This image should be treated as terminal ${preferredTerminal || 'T1'} unless it clearly says otherwise.`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Normalize flight numbers so forms like "FC2355", "FC 2355", and "FC-2355" all resolve to the same flight code value "FC 2355". Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". If this is a live bay screen, use the screen header bay as position for all rows when appropriate, keep only flight code, destination if visible, bay/position, and the departure time. If multiple times appear on a bay-screen row, std must be the one furthest in the future, usually the repeated later time, not the earlier baggage-opening time. Many paper sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. ${terminalInstruction}`,
             },
             {
               type: 'image_url',

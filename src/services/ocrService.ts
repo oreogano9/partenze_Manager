@@ -105,7 +105,7 @@ const optimizeImageFile = async (file: File) => {
 
 export const extractFlightsFromImage = async (
   image: File,
-  preferredTerminal: TerminalType,
+  preferredTerminal?: TerminalType,
   onProgress?: (progress: number) => void,
 ): Promise<OCRExtractionResult> => {
   try {

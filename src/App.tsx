@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType } from './types';
+import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType, TerminalType } from './types';
 import { GLOSSARY_ENTRIES, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
+type ScanTerminalMode = 'AUTO' | TerminalType;
 type MergeStatus = 'new' | 'update' | 'unchanged';
 type MergeField = 'flightNumber' | 'destination' | 'std' | 'position';
 type OCRMergeInfo = {
@@ -21,6 +22,14 @@ type OCRMergeInfo = {
   previousFlight: Flight | null;
 };
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
+const SCAN_TERMINAL_OPTIONS: ScanTerminalMode[] = ['AUTO', 'T1', 'T3'];
+const T1_ONLY_AUTO_TERMINAL_POSITIONS = new Set([
+  1, 2, 3, 4, 5, 7, 9, 11,
+  39, 41, 43, 44, 45, 46, 47, 48,
+]);
+const T3_ONLY_AUTO_TERMINAL_POSITIONS = new Set([
+  12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 34, 36, 38,
+]);
 type SharedBoardFilters = {
   terminalFilter: 'ALL' | 'T1' | 'T3';
   filterTypes: PositionType[];
@@ -34,7 +43,8 @@ type SharedBoardFilters = {
 type PersistedState = {
   appState: AppState;
   terminalFilter: 'ALL' | 'T1' | 'T3';
-  scanTerminal: 'T1' | 'T3';
+  scanTerminal: ScanTerminalMode;
+  scanTerminalFallback: TerminalType;
   shiftStart: string;
   shiftEnd: string;
   useShiftFilter: boolean;
@@ -113,6 +123,27 @@ const normalizeFlightCode = (value: string) => {
     return value.toUpperCase().trim().replace(/\s+/g, ' ');
   }
   return `${match[1]} ${match[2]}`;
+};
+
+const getScanTerminalLabel = (mode: ScanTerminalMode, t: any) =>
+  mode === 'AUTO' ? t.autoDetect : mode;
+
+const inferTerminalFromNonOverlappingPosition = (position: string): TerminalType | null => {
+  const normalized = position.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  const positionNumber = Number(normalized);
+  if (T1_ONLY_AUTO_TERMINAL_POSITIONS.has(positionNumber)) {
+    return 'T1';
+  }
+
+  if (T3_ONLY_AUTO_TERMINAL_POSITIONS.has(positionNumber)) {
+    return 'T3';
+  }
+
+  return null;
 };
 
 const getFlightCodeKey = (flightNumber: string) => normalizeFlightCode(flightNumber).replace(/\s+/g, '');
@@ -505,7 +536,8 @@ const loadPersistedState = (): PersistedState => {
   const fallback: PersistedState = {
     appState: DEFAULT_APP_STATE,
     terminalFilter: 'ALL',
-    scanTerminal: 'T1',
+    scanTerminal: 'AUTO',
+    scanTerminalFallback: 'T1',
     shiftStart: defaultShiftStart,
     shiftEnd: defaultShiftEnd,
     useShiftFilter: true,
@@ -539,7 +571,10 @@ const loadPersistedState = (): PersistedState => {
         filterTypes: persistedFilterTypes,
       },
       terminalFilter: parsed.terminalFilter === 'T1' || parsed.terminalFilter === 'T3' ? parsed.terminalFilter : 'ALL',
-      scanTerminal: parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
+      scanTerminal: parsed.scanTerminal === 'AUTO' || parsed.scanTerminal === 'T1' || parsed.scanTerminal === 'T3'
+        ? parsed.scanTerminal
+        : 'AUTO',
+      scanTerminalFallback: parsed.scanTerminalFallback === 'T3' || parsed.scanTerminal === 'T3' ? 'T3' : 'T1',
       shiftStart: typeof parsed.shiftStart === 'string' && /^\d{2}:\d{2}$/.test(parsed.shiftStart)
         ? parsed.shiftStart
         : defaultShiftStart,
@@ -1261,7 +1296,8 @@ export default function App() {
   const [state, setState] = useState<AppState>(initialAppState);
   const [glossaryQuery, setGlossaryQuery] = useState('');
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
-  const [scanTerminal, setScanTerminal] = useState<'T1' | 'T3'>(persistedState.scanTerminal);
+  const [scanTerminal, setScanTerminal] = useState<ScanTerminalMode>(persistedState.scanTerminal);
+  const [scanTerminalFallback, setScanTerminalFallback] = useState<TerminalType>(persistedState.scanTerminalFallback);
   const [shiftStart, setShiftStart] = useState(persistedState.shiftStart);
   const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
   const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
@@ -1297,6 +1333,7 @@ export default function App() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const ocrReviewRef = useRef<OCRReviewState | null>(null);
   const adrSyncInFlightRef = useRef(false);
+  const skipNextSharedPersistRef = useRef(false);
   const stateFlightsRef = useRef<Flight[]>(state.flights);
 
   const t = TRANSLATIONS[state.language];
@@ -1441,12 +1478,19 @@ export default function App() {
     setState(prev => ({ ...prev, showPast: !prev.showPast }));
   };
 
+  const handleScanTerminalChange = (mode: ScanTerminalMode) => {
+    setScanTerminal(mode);
+    if (mode === 'T1' || mode === 'T3') {
+      setScanTerminalFallback(mode);
+    }
+  };
+
   const clearLocalData = () => {
     if (typeof window !== 'undefined') {
       const confirmed = window.confirm(
         state.language === 'it'
-          ? 'Vuoi davvero ripristinare preferenze e filtri salvati solo in questo browser?'
-          : 'Do you want to reset preferences and filters saved only in this browser?'
+          ? 'Vuoi davvero cancellare voli locali, preferenze e filtri salvati solo in questo browser?'
+          : 'Do you want to clear local flights, preferences, and filters saved only in this browser?'
       );
 
       if (!confirmed) {
@@ -1457,9 +1501,11 @@ export default function App() {
       window.localStorage.removeItem(LOCAL_BOARD_BACKUP_KEY);
     }
 
-    setState((prev) => ({ ...DEFAULT_APP_STATE, flights: prev.flights }));
+    skipNextSharedPersistRef.current = true;
+    setState(DEFAULT_APP_STATE);
     setTerminalFilter('ALL');
-    setScanTerminal('T1');
+    setScanTerminal('AUTO');
+    setScanTerminalFallback('T1');
     setShiftStart(defaultShiftStart);
     setShiftEnd(defaultShiftEnd);
     setUseShiftFilter(true);
@@ -1561,17 +1607,24 @@ export default function App() {
 
     try {
       for (const [fileIndex, file] of files.entries()) {
-        const result = await extractFlightsFromImage(file, scanTerminal, progress => {
+        const result = await extractFlightsFromImage(file, scanTerminal === 'AUTO' ? undefined : scanTerminal, progress => {
           setOcrProgress(Math.round(((fileIndex + progress / 100) / files.length) * 100));
         });
 
         const previewUrl = URL.createObjectURL(file);
         setOcrReview(prev => {
-          const nextFlights = result.flights.map(flight => ({
-            ...flight,
-            flightNumber: normalizeFlightCode(flight.flightNumber),
-            selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
-          }));
+          const nextFlights = result.flights.map(flight => {
+            const inferredTerminal = scanTerminal === 'AUTO'
+              ? inferTerminalFromNonOverlappingPosition(flight.position)
+              : null;
+
+            return {
+              ...flight,
+              terminal: inferredTerminal ?? flight.terminal ?? scanTerminalFallback,
+              flightNumber: normalizeFlightCode(flight.flightNumber),
+              selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
+            };
+          });
 
           if (!prev) {
             setMobileOcrPanel('flights');
@@ -1790,6 +1843,7 @@ export default function App() {
       },
       terminalFilter,
       scanTerminal,
+      scanTerminalFallback,
       shiftStart,
       shiftEnd,
       useShiftFilter,
@@ -1798,10 +1852,15 @@ export default function App() {
 
     window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
     window.localStorage.setItem(LOCAL_BOARD_BACKUP_KEY, JSON.stringify({ flights, filters }));
-  }, [state, terminalFilter, scanTerminal, connectionThreshold, useShiftFilter, shiftStart, shiftEnd]);
+  }, [state, terminalFilter, scanTerminal, scanTerminalFallback, connectionThreshold, useShiftFilter, shiftStart, shiftEnd]);
 
   useEffect(() => {
     if (isWatchRoute || !canPersistSharedFlights) {
+      return;
+    }
+
+    if (skipNextSharedPersistRef.current) {
+      skipNextSharedPersistRef.current = false;
       return;
     }
 
@@ -2399,15 +2458,15 @@ export default function App() {
                 <div className="mt-6">
                   <div className="mx-auto flex max-w-sm flex-col gap-3">
                     <div className="flex w-full justify-center bg-white/5 p-1.5 rounded-full border border-white/10">
-                      {(['T1', 'T3'] as const).map((term) => (
+                      {SCAN_TERMINAL_OPTIONS.map((term) => (
                         <button
                           key={term}
-                          onClick={() => setScanTerminal(term)}
-                          className={`flex-1 px-6 py-3 rounded-full text-sm font-black transition-all ${
+                          onClick={() => handleScanTerminalChange(term)}
+                          className={`flex-1 px-4 py-3 rounded-full text-xs font-black transition-all ${
                             scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
                           }`}
                         >
-                          {term}
+                          {getScanTerminalLabel(term, t)}
                         </button>
                       ))}
                     </div>
@@ -2538,16 +2597,16 @@ export default function App() {
                           </p>
                         </div>
                         <div className="mb-2 flex bg-white/5 p-1 rounded-xl border border-white/10 items-center">
-                          {(['T1', 'T3'] as const).map((term) => (
+                          {SCAN_TERMINAL_OPTIONS.map((term) => (
                             <button
                               key={term}
-                              onClick={() => setScanTerminal(term)}
+                              onClick={() => handleScanTerminalChange(term)}
                               className={`flex-1 px-3 py-2 rounded-lg text-[10px] font-bold transition-all ${
                                 scanTerminal === term ? 'bg-emerald-500 text-black' : 'text-white/40 hover:text-white/60'
                               }`}
-                              aria-label={`${t.scanTerminalLabel}: ${term}`}
+                              aria-label={`${t.scanTerminalLabel}: ${getScanTerminalLabel(term, t)}`}
                             >
-                              {term}
+                              {getScanTerminalLabel(term, t)}
                             </button>
                           ))}
                         </div>
@@ -2562,7 +2621,7 @@ export default function App() {
                           {isExtracting ? <Loader2 size={16} className="animate-spin text-emerald-300" /> : <Camera size={16} className="text-emerald-400" />}
                           <div className="flex flex-col">
                             <span className="font-bold">{t.cameraMode}</span>
-                            <span className="text-[10px] text-white/40">{scanTerminal}</span>
+                            <span className="text-[10px] text-white/40">{getScanTerminalLabel(scanTerminal, t)}</span>
                           </div>
                         </button>
                         <button
@@ -2576,7 +2635,7 @@ export default function App() {
                           <Plus size={16} className="text-white/60" />
                           <div className="flex flex-col">
                             <span className="font-bold">{t.importPhoto}</span>
-                            <span className="text-[10px] text-white/40">{scanTerminal}</span>
+                            <span className="text-[10px] text-white/40">{getScanTerminalLabel(scanTerminal, t)}</span>
                           </div>
                         </button>
                       </motion.div>
