@@ -108,7 +108,7 @@ type OCRFixModalProps = {
   t: any;
 };
 
-type WatchStep = 'timeline' | 'destinations' | 'flights' | 'detail';
+type WatchStep = 'timeline' | 'search' | 'destinations' | 'flights' | 'detail';
 
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
@@ -960,23 +960,23 @@ const WatchFlightCard: React.FC<{
     <button
       type="button"
       onClick={onClick}
-      className={`grid min-h-12 w-full grid-cols-[2.65rem_1fr] gap-2 rounded-md px-1.5 py-1.5 text-left active:scale-[0.99] ${
+      className={`grid min-h-[3.7rem] w-full grid-cols-[3.25rem_1fr] gap-2 rounded-lg px-2 py-2 text-left active:scale-[0.99] ${
         flight.doneAt ? 'bg-emerald-500/10 opacity-60' : 'bg-white/[0.055]'
       }`}
     >
       <div
-        className="flex h-full min-h-10 flex-col items-center justify-center rounded text-white"
+        className="flex h-full min-h-12 flex-col items-center justify-center rounded-md text-white"
         style={{ backgroundColor: urgencyColor }}
       >
-        <span className="text-lg font-black leading-none">{flight.position || 'X'}</span>
-        <span className="mt-0.5 text-[9px] font-black leading-none">{flight.terminal}</span>
+        <span className="text-xl font-black leading-none">{flight.position || 'X'}</span>
+        <span className="mt-0.5 text-[10px] font-black leading-none">{flight.terminal}</span>
       </div>
       <div className="min-w-0 self-center">
         <div className="flex min-w-0 items-baseline justify-between gap-1">
-          <span className="truncate text-base font-black leading-none text-white">{flight.destination}</span>
-          <span className="shrink-0 text-sm font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
+          <span className="truncate text-[1.15rem] font-black leading-none text-white">{flight.destination}</span>
+          <span className="shrink-0 text-base font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
         </div>
-        <div className="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] font-bold leading-none text-white/50">
+        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-1 text-[11px] font-bold leading-none text-white/55">
           <span className="truncate">{flight.flightNumber}</span>
           <span className="flex shrink-0 items-center gap-1 text-white/65">
             {flight.doneAt && <Check size={10} className="text-emerald-200" />}
@@ -984,7 +984,7 @@ const WatchFlightCard: React.FC<{
           </span>
         </div>
         {!compact && (
-          <div className="mt-1 flex items-center justify-between gap-1 text-[9px] font-bold leading-none text-white/30">
+          <div className="mt-1 flex items-center justify-between gap-1 text-[10px] font-bold leading-none text-white/35">
             <span>{positionType}</span>
             {flight.tot && <span className="truncate text-emerald-200/80">{flight.tot}</span>}
           </div>
@@ -1022,6 +1022,46 @@ const WatchLocationName: React.FC<{ destination: string }> = ({ destination }) =
   return <>{location || destination}</>;
 };
 
+const getWatchSearchText = (flight: Flight) => {
+  const destination = flight.destination.trim().toUpperCase();
+  return [
+    flight.flightNumber,
+    destination,
+    flight.position,
+    flight.terminal,
+    getPositionType(flight.terminal, flight.position),
+    getCommonIataLocationName(destination, 'it'),
+  ].filter(Boolean).join(' ').toLowerCase();
+};
+
+const scoreWatchSearchMatch = (flight: Flight, query: string) => {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const compactQuery = normalizedQuery.replace(/\s+/g, '');
+  const flightCode = flight.flightNumber.toLowerCase();
+  const compactFlightCode = flightCode.replace(/\s+/g, '');
+  const destination = flight.destination.toLowerCase();
+  const position = flight.position.toLowerCase();
+  const searchText = getWatchSearchText(flight);
+
+  if (destination === normalizedQuery || position === normalizedQuery || compactFlightCode === compactQuery) {
+    return 100;
+  }
+
+  if (destination.startsWith(normalizedQuery) || compactFlightCode.startsWith(compactQuery) || position.startsWith(normalizedQuery)) {
+    return 80;
+  }
+
+  if (searchText.includes(normalizedQuery) || compactFlightCode.includes(compactQuery)) {
+    return 55;
+  }
+
+  return 0;
+};
+
 const WatchApp: React.FC<{
   flights: Flight[];
   filters: SharedBoardFilters;
@@ -1032,8 +1072,9 @@ const WatchApp: React.FC<{
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+  const [watchSearchQuery, setWatchSearchQuery] = useState('');
 
-  const visibleFlights = useMemo(() => {
+  const baseVisibleFlights = useMemo(() => {
     const now = Date.now();
     const query = filters.searchQuery.trim().toLowerCase();
     const { shiftStart: shiftLowerBound, shiftEnd: shiftEndDate } = resolveShiftWindow(filters.shiftStart, filters.shiftEnd, new Date(now));
@@ -1061,7 +1102,17 @@ const WatchApp: React.FC<{
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
   }, [flights, filters]);
-  const hasHiddenFlights = !isLoading && flights.length > 0 && visibleFlights.length === 0;
+
+  const predictiveFlights = useMemo(() => (
+    baseVisibleFlights
+      .map((flight) => ({ flight, score: scoreWatchSearchMatch(flight, watchSearchQuery) }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || new Date(a.flight.std).getTime() - new Date(b.flight.std).getTime())
+      .map(({ flight }) => flight)
+  ), [baseVisibleFlights, watchSearchQuery]);
+
+  const visibleFlights = watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights;
+  const hasHiddenFlights = !isLoading && flights.length > 0 && baseVisibleFlights.length === 0;
   const statusLabel = sharedStatus.state === 'load-failed'
     ? `Load fail${getStatusMessageSuffix(sharedStatus.message)}`
     : sharedStatus.state === 'loaded'
@@ -1085,6 +1136,21 @@ const WatchApp: React.FC<{
       .sort((a, b) => new Date(a.flights[0].std).getTime() - new Date(b.flights[0].std).getTime());
   }, [visibleFlights]);
 
+  const quickDestinations = useMemo(() => {
+    const grouped = new Map<string, Flight[]>();
+    baseVisibleFlights.forEach((flight) => {
+      const code = flight.destination.trim().toUpperCase() || '---';
+      grouped.set(code, [...(grouped.get(code) ?? []), flight]);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([code, destinationFlights]) => ({
+        code,
+        flights: destinationFlights.sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime()),
+      }))
+      .sort((a, b) => new Date(a.flights[0].std).getTime() - new Date(b.flights[0].std).getTime());
+  }, [baseVisibleFlights]);
+
   const destinationFlights = useMemo(() => {
     if (!selectedDestination) {
       return [];
@@ -1099,6 +1165,8 @@ const WatchApp: React.FC<{
   );
   const stepLabel = step === 'destinations'
     ? 'Dest'
+    : step === 'search'
+      ? 'Cerca'
     : step === 'flights'
       ? selectedDestination || 'Voli'
       : step === 'detail' && selectedFlight
@@ -1112,9 +1180,14 @@ const WatchApp: React.FC<{
       return;
     }
 
+    if (step === 'search') {
+      setStep('timeline');
+      return;
+    }
+
     if (step === 'flights') {
       setSelectedDestination(null);
-      setStep('destinations');
+      setStep(watchSearchQuery.trim() ? 'search' : 'destinations');
       return;
     }
 
@@ -1144,31 +1217,32 @@ const WatchApp: React.FC<{
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen w-screen max-w-none flex-col px-1.5 py-1.5">
-        <div className={`mb-1 rounded px-1.5 py-0.5 text-center text-[9px] font-black ${
+      <div className="flex min-h-screen w-screen max-w-none flex-col px-1 py-1">
+        <div className={`mb-1 rounded-md px-1.5 py-1 text-center text-[10px] font-black ${
           sharedStatus.state === 'load-failed' ? 'bg-rose-500/15 text-rose-200' : 'bg-white/[0.045] text-white/35'
         }`}>
           {statusLabel}
         </div>
-        <header className="sticky top-0 z-10 -mx-1.5 bg-black/95 px-1.5 pb-1.5 pt-0.5">
-          <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-1">
+        <header className="sticky top-0 z-10 -mx-1 bg-black/95 px-1 pb-1.5 pt-0.5">
+          <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1">
             <button
               type="button"
               onClick={goBack}
               disabled={step === 'timeline'}
-              className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-white/80 disabled:opacity-15"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.09] text-white/85 disabled:opacity-15"
               aria-label="Back"
             >
-              <ArrowLeft size={17} />
+              <ArrowLeft size={19} />
             </button>
             <button
               type="button"
               onClick={() => {
                 setSelectedDestination(null);
                 setSelectedFlightId(null);
+                setWatchSearchQuery('');
                 setStep('timeline');
               }}
-              className="min-w-0 truncate text-center text-xs font-black uppercase text-emerald-300"
+              className="min-w-0 truncate text-center text-sm font-black uppercase text-emerald-300"
             >
               {stepLabel}
             </button>
@@ -1176,12 +1250,12 @@ const WatchApp: React.FC<{
               type="button"
               onClick={() => {
                 setSelectedFlightId(null);
-                setStep('destinations');
+                setStep('search');
               }}
-              className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-white/80"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.09] text-white/85"
               aria-label="Search"
             >
-              <Search size={17} />
+              <Search size={19} />
             </button>
           </div>
         </header>
@@ -1195,6 +1269,58 @@ const WatchApp: React.FC<{
             <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold leading-snug text-white/50">
               {hasHiddenFlights ? `${flights.length} filtrati` : 'Nessun volo'}
             </div>
+          ) : step === 'search' ? (
+            <div className="space-y-2">
+              <label className="relative block">
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
+                <input
+                  value={watchSearchQuery}
+                  onChange={(event) => setWatchSearchQuery(event.target.value)}
+                  autoFocus
+                  inputMode="search"
+                  placeholder="Volo, baia, dest"
+                  className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.07] pl-9 pr-8 text-base font-black text-white outline-none placeholder:text-white/30"
+                />
+                {watchSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setWatchSearchQuery('')}
+                    className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-white/[0.08] text-white/60"
+                    aria-label="Clear search"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </label>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {quickDestinations.slice(0, 6).map(({ code }) => (
+                  <button
+                    key={`quick-${code}`}
+                    type="button"
+                    onClick={() => {
+                      setWatchSearchQuery(code);
+                      selectDestination(code);
+                    }}
+                    className="min-h-10 rounded-lg bg-white/[0.06] px-1 text-sm font-black text-white/80 active:scale-[0.98]"
+                  >
+                    {code}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5">
+                {(watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights).slice(0, 8).map((flight) => (
+                  <WatchFlightCard key={`search-${flight.id}`} flight={flight} compact onClick={() => openFlight(flight)} />
+                ))}
+              </div>
+
+              {watchSearchQuery.trim() && predictiveFlights.length === 0 && (
+                <div className="rounded-lg bg-white/[0.055] p-3 text-center text-sm font-bold leading-snug text-white/50">
+                  Nessun match
+                </div>
+              )}
+            </div>
           ) : step === 'destinations' ? (
             <div className="space-y-1.5">
               {destinations.map(({ code, flights: destinationGroup }) => (
@@ -1202,10 +1328,10 @@ const WatchApp: React.FC<{
                   key={code}
                   type="button"
                   onClick={() => selectDestination(code)}
-                  className="grid min-h-11 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-md bg-white/[0.055] px-2 py-1.5 text-left active:scale-[0.99]"
+                  className="grid min-h-14 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-lg bg-white/[0.055] px-2.5 py-2 text-left active:scale-[0.99]"
                 >
-                  <span className="truncate text-xl font-black leading-none">{code}</span>
-                  <span className="text-right text-xs font-black leading-tight text-emerald-200">
+                  <span className="truncate text-2xl font-black leading-none">{code}</span>
+                  <span className="text-right text-sm font-black leading-tight text-emerald-200">
                     {formatHHmm(destinationGroup[0].std)}
                     <span className="ml-1 text-[10px] text-white/40">{destinationGroup.length}</span>
                   </span>
@@ -1214,9 +1340,9 @@ const WatchApp: React.FC<{
             </div>
           ) : step === 'flights' ? (
             <div className="space-y-1.5">
-              <div className="rounded-md bg-white/[0.035] px-2 py-1.5">
-                <div className="text-base font-black leading-none">{selectedDestination}</div>
-                <div className="mt-1 truncate text-[10px] font-bold leading-none text-white/45">
+              <div className="rounded-lg bg-white/[0.04] px-2.5 py-2">
+                <div className="text-2xl font-black leading-none">{selectedDestination}</div>
+                <div className="mt-1 truncate text-xs font-bold leading-none text-white/45">
                   {selectedDestination && <WatchLocationName destination={selectedDestination} />}
                 </div>
               </div>
@@ -1226,16 +1352,16 @@ const WatchApp: React.FC<{
             </div>
           ) : step === 'detail' && selectedFlight ? (
             <div className="space-y-2">
-              <div className={`rounded-lg p-2.5 ${selectedFlight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.065]'}`}>
-                <div className="grid grid-cols-[4.35rem_1fr] gap-2">
-                  <div className="flex min-h-20 flex-col items-center justify-center rounded-md bg-emerald-500 px-1 text-center text-black">
-                    <div className="text-[2.55rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
+              <div className={`rounded-xl p-2.5 ${selectedFlight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.065]'}`}>
+                <div className="grid grid-cols-[4.8rem_1fr] gap-2">
+                  <div className="flex min-h-[5.7rem] flex-col items-center justify-center rounded-lg bg-emerald-500 px-1 text-center text-black">
+                    <div className="text-[2.85rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
                     <div className="mt-1 text-xs font-black leading-none">{selectedFlight.terminal}</div>
                   </div>
                   <div className="min-w-0 self-center">
-                    <div className="truncate text-[2rem] font-black leading-none text-white">{selectedFlight.destination}</div>
-                    <div className="mt-1 truncate text-base font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
-                    <div className="mt-2 text-[2.25rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
+                    <div className="truncate text-[2.2rem] font-black leading-none text-white">{selectedFlight.destination}</div>
+                    <div className="mt-1 truncate text-lg font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
+                    <div className="mt-2 text-[2.45rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
                     <div className="mt-1 text-xs font-bold leading-none text-white/50">
                       {formatDuration(getMinutesToTarget(selectedFlight.std))}
                     </div>
@@ -1246,17 +1372,17 @@ const WatchApp: React.FC<{
               <button
                 type="button"
                 onClick={() => onToggleDone(selectedFlight.id)}
-                className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-lg text-sm font-black uppercase tracking-wide ${
+                className={`ml-auto flex h-12 w-12 items-center justify-center rounded-xl ${
                   selectedFlight.doneAt
                     ? 'bg-emerald-500 text-black'
-                    : 'bg-white text-black'
+                    : 'bg-white/[0.09] text-white/80'
                 }`}
+                aria-label={selectedFlight.doneAt ? 'Riapri volo' : 'Chiudi volo'}
               >
-                <Check size={18} />
-                {selectedFlight.doneAt ? 'Fatto' : 'Chiudi volo'}
+                <Check size={22} strokeWidth={3} />
               </button>
 
-              <div className="rounded-md bg-white/[0.04] px-2 py-1.5 text-[11px] font-bold leading-snug text-white/70">
+              <div className="rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs font-bold leading-snug text-white/70">
                 <div className="truncate text-white">
                   <WatchLocationName destination={selectedFlight.destination} />
                 </div>
