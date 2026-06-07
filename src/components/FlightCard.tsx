@@ -506,7 +506,8 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   return (
     <motion.div 
       layout
-      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4 overflow-visible ${isExpanded ? 'z-30' : isConnectedToNext ? 'z-20' : 'z-0'} ${flight.doneAt ? 'opacity-60' : ''}`}
+      className={`bg-[#1a1a1a] border ${isFocused ? 'border-white/40 shadow-[0_0_20px_rgba(255,255,255,0.08)] ring-1 ring-white/20' : 'border-white/5'} rounded-xl shadow-lg relative mb-4 overflow-visible ${flight.doneAt ? 'opacity-60' : ''}`}
+      style={{ zIndex: isExpanded ? 80 : undefined }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
     >
@@ -530,7 +531,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
                   animate={{ opacity: 0.8 }}
                   exit={{ opacity: 0, transition: { duration: 0 } }}
                   transition={{ delay: 0.5, duration: 0.5 }}
-                  className="pointer-events-none absolute left-1/2 top-full z-40 h-[72px] w-1.5 -translate-x-1/2"
+                  className="pointer-events-none absolute left-1/2 top-full z-10 h-[72px] w-1.5 -translate-x-1/2"
                   style={{ 
                     background: `linear-gradient(to bottom, ${urgencyColor}, ${nextUrgencyColor || urgencyColor})`
                   }}
