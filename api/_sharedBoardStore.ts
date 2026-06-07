@@ -14,7 +14,7 @@ export const readBlobTextByPath = async (pathname: string, token: string) => {
   }
 
   const blob = await get(matchedBlob.url, {
-    access: 'private',
+    access: 'public',
     token,
     useCache: false,
   });
@@ -31,7 +31,7 @@ export const readSharedBoardText = (token: string) =>
 
 export const writeSharedBoardText = (body: string, token: string) =>
   put(SHARED_BOARD_BLOB_PATH, body, {
-    access: 'private',
+    access: 'public',
     token,
     allowOverwrite: true,
     addRandomSuffix: false,

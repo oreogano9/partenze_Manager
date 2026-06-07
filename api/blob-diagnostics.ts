@@ -65,7 +65,7 @@ export default async function handler(req: any, res: any) {
     };
 
     await put(DIAGNOSTIC_BLOB_PATH, JSON.stringify(probe), {
-      access: 'private',
+      access: 'public',
       token: tokenInfo.token,
       allowOverwrite: true,
       addRandomSuffix: false,
