@@ -1,5 +1,6 @@
-import { del, get, put } from '@vercel/blob';
+import { del, list, put } from '@vercel/blob';
 import { getBlobTokenInfo, missingBlobTokenMessage, SHARED_BOARD_BLOB_PATH } from './_blobConfig.js';
+import { readBlobTextByPath, readSharedBoardText } from './_sharedBoardStore.js';
 
 const DIAGNOSTIC_BLOB_PATH = 'partenze-manager/blob-diagnostics.json';
 
@@ -29,14 +30,13 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const sharedBlob = await get(SHARED_BOARD_BLOB_PATH, {
-      access: 'private',
+    const sharedList = await list({
+      prefix: SHARED_BOARD_BLOB_PATH,
+      limit: 10,
       token: tokenInfo.token,
-      useCache: false,
     });
-    const sharedRaw = sharedBlob?.statusCode === 200
-      ? await new Response(sharedBlob.stream).text()
-      : '';
+    const sharedBlob = sharedList.blobs.find((blob) => blob.pathname === SHARED_BOARD_BLOB_PATH);
+    const sharedRaw = await readSharedBoardText(tokenInfo.token) ?? '';
     const sharedParsed = sharedRaw.trim() ? JSON.parse(sharedRaw) as { flights?: unknown; filters?: unknown; savedAt?: unknown } | unknown[] : null;
     const sharedFlights = Array.isArray(sharedParsed)
       ? sharedParsed
@@ -48,8 +48,9 @@ export default async function handler(req: any, res: any) {
       res.status(200).json({
         ...basePayload,
         ok: true,
+        canListSharedBoard: true,
         canReadSharedBoard: true,
-        sharedBoardExists: sharedBlob?.statusCode === 200,
+        sharedBoardExists: Boolean(sharedBlob),
         sharedFlightCount: sharedFlights.length,
         sharedSavedAt: !Array.isArray(sharedParsed) && typeof sharedParsed?.savedAt === 'string'
           ? sharedParsed.savedAt
@@ -71,12 +72,7 @@ export default async function handler(req: any, res: any) {
       contentType: 'application/json',
     });
 
-    const probeBlob = await get(DIAGNOSTIC_BLOB_PATH, {
-      access: 'private',
-      token: tokenInfo.token,
-      useCache: false,
-    });
-    const probeRaw = probeBlob?.statusCode === 200 ? await new Response(probeBlob.stream).text() : '';
+    const probeRaw = await readBlobTextByPath(DIAGNOSTIC_BLOB_PATH, tokenInfo.token) ?? '';
 
     await del(DIAGNOSTIC_BLOB_PATH, {
       token: tokenInfo.token,
@@ -85,8 +81,9 @@ export default async function handler(req: any, res: any) {
     res.status(200).json({
       ...basePayload,
       ok: true,
+      canListSharedBoard: true,
       canReadSharedBoard: true,
-      sharedBoardExists: sharedBlob?.statusCode === 200,
+      sharedBoardExists: Boolean(sharedBlob),
       sharedFlightCount: sharedFlights.length,
       canWriteProbe: true,
       canReadProbe: probeRaw.includes(probe.checkedAt),

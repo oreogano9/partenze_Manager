@@ -1,6 +1,6 @@
-import { get, put } from '@vercel/blob';
 import type { Flight } from '../src/types';
-import { getBlobTokenInfo, missingBlobTokenMessage, SHARED_BOARD_BLOB_PATH } from './_blobConfig.js';
+import { getBlobTokenInfo, missingBlobTokenMessage } from './_blobConfig.js';
+import { readSharedBoardText, writeSharedBoardText } from './_sharedBoardStore.js';
 
 type AdrDirection = 'departure' | 'arrival';
 
@@ -188,18 +188,12 @@ const fetchAdrFlights = async (direction: AdrDirection, dateKey: string, interva
 
 const readSharedBoard = async (): Promise<SharedBoardPayload> => {
   const { token: blobToken } = getBlobTokenInfo();
-  const blob = await get(SHARED_BOARD_BLOB_PATH, {
-    access: 'private',
-    token: blobToken,
-    useCache: false,
-  });
-
-  if (!blob || blob.statusCode !== 200) {
+  if (!blobToken) {
     return { flights: [] };
   }
 
-  const rawText = await new Response(blob.stream).text();
-  if (!rawText.trim()) {
+  const rawText = await readSharedBoardText(blobToken);
+  if (!rawText?.trim()) {
     return { flights: [] };
   }
 
@@ -211,17 +205,11 @@ const readSharedBoard = async (): Promise<SharedBoardPayload> => {
 
 const writeSharedBoard = async (flights: Flight[], filters: unknown) => {
   const { token: blobToken } = getBlobTokenInfo();
-  await put(
-    SHARED_BOARD_BLOB_PATH,
-    JSON.stringify({ flights, filters }),
-    {
-      access: 'private',
-      token: blobToken,
-      allowOverwrite: true,
-      addRandomSuffix: false,
-      contentType: 'application/json',
-    },
-  );
+  if (!blobToken) {
+    return;
+  }
+
+  await writeSharedBoardText(JSON.stringify({ flights, filters }), blobToken);
 };
 
 export default async function handler(req: any, res: any) {
