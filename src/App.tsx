@@ -468,6 +468,11 @@ const formatMinutesAgo = (timestamp: number, now: number) => {
   return `${minutes}m ago`;
 };
 
+const getStatusMessageSuffix = (message?: string) => {
+  const cleanMessage = message?.trim();
+  return cleanMessage ? `: ${cleanMessage}` : '';
+};
+
 const shouldUseWatchView = () => {
   if (typeof window === 'undefined') {
     return false;
@@ -1022,7 +1027,7 @@ const WatchApp: React.FC<{
   }, [flights, filters]);
   const hasHiddenFlights = !isLoading && flights.length > 0 && visibleFlights.length === 0;
   const statusLabel = sharedStatus.state === 'load-failed'
-    ? 'Load fail'
+    ? `Load fail${getStatusMessageSuffix(sharedStatus.message)}`
     : sharedStatus.state === 'loaded'
       ? `${visibleFlights.length}/${flights.length}`
       : sharedStatus.state === 'saved'
@@ -2005,11 +2010,11 @@ export default function App() {
     ? `${adrSyncStatus.state === 'success' ? 'Updated' : 'Failed update'} ${formatMinutesAgo(adrSyncStatus.at, statusNow)}`
     : null;
   const sharedBoardStatusLabel = sharedBoardStatus.state === 'save-failed'
-    ? `Site save failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
+    ? `Site save failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}${getStatusMessageSuffix(sharedBoardStatus.message)}`
     : sharedBoardStatus.state === 'saved'
       ? `Site saved ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
       : sharedBoardStatus.state === 'load-failed'
-        ? `Site load failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}`
+        ? `Site load failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}${getStatusMessageSuffix(sharedBoardStatus.message)}`
         : null;
 
   if (isWatchRoute) {
