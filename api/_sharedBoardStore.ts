@@ -1,4 +1,4 @@
-import { get, list, put } from '@vercel/blob';
+import { list, put } from '@vercel/blob';
 import { SHARED_BOARD_BLOB_PATH } from './_blobConfig.js';
 
 export const readBlobTextByPath = async (pathname: string, token: string) => {
@@ -13,17 +13,19 @@ export const readBlobTextByPath = async (pathname: string, token: string) => {
     return null;
   }
 
-  const blob = await get(matchedBlob.url, {
-    access: 'public',
-    token,
-    useCache: false,
-  });
+  const fetchUrl = new URL(matchedBlob.url);
+  fetchUrl.searchParams.set('cache', '0');
+  const blob = await fetch(fetchUrl);
 
-  if (!blob || blob.statusCode !== 200) {
+  if (blob.status === 404) {
     return null;
   }
 
-  return new Response(blob.stream).text();
+  if (!blob.ok) {
+    throw new Error(`Failed to fetch blob: ${blob.status} ${blob.statusText}`);
+  }
+
+  return blob.text();
 };
 
 export const readSharedBoardText = (token: string) =>
