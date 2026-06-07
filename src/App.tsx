@@ -950,16 +950,38 @@ const WatchFlightCard: React.FC<{
   flight: Flight;
   compact?: boolean;
   onClick: () => void;
-}> = ({ flight, compact = false, onClick }) => {
+  onDoubleTap: () => void;
+}> = ({ flight, compact = false, onClick, onDoubleTap }) => {
   const minutesToTarget = getMinutesToTarget(flight.std);
   const urgencyColor = getUrgencyColor(minutesToTarget);
   const targetLabel = formatDuration(minutesToTarget);
   const positionType = getPositionType(flight.terminal, flight.position);
+  const tapTimeoutRef = useRef<number | null>(null);
+
+  const handleClick = () => {
+    if (tapTimeoutRef.current !== null) {
+      window.clearTimeout(tapTimeoutRef.current);
+      tapTimeoutRef.current = null;
+      onDoubleTap();
+      return;
+    }
+
+    tapTimeoutRef.current = window.setTimeout(() => {
+      tapTimeoutRef.current = null;
+      onClick();
+    }, 240);
+  };
+
+  useEffect(() => () => {
+    if (tapTimeoutRef.current !== null) {
+      window.clearTimeout(tapTimeoutRef.current);
+    }
+  }, []);
 
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className={`grid min-h-[3.7rem] w-full grid-cols-[3.25rem_1fr] gap-2 rounded-lg px-2 py-2 text-left active:scale-[0.99] ${
         flight.doneAt ? 'bg-emerald-500/10 opacity-60' : 'bg-white/[0.055]'
       }`}
@@ -1303,7 +1325,13 @@ const WatchApp: React.FC<{
 
               <div className="space-y-1.5">
                 {(watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights).slice(0, 8).map((flight) => (
-                  <WatchFlightCard key={`search-${flight.id}`} flight={flight} compact onClick={() => openFlight(flight)} />
+                  <WatchFlightCard
+                    key={`search-${flight.id}`}
+                    flight={flight}
+                    compact
+                    onClick={() => openFlight(flight)}
+                    onDoubleTap={() => onToggleDone(flight.id)}
+                  />
                 ))}
               </div>
 
@@ -1339,7 +1367,13 @@ const WatchApp: React.FC<{
                 </div>
               </div>
               {destinationFlights.map((flight) => (
-                <WatchFlightCard key={flight.id} flight={flight} compact onClick={() => openFlight(flight)} />
+                <WatchFlightCard
+                  key={flight.id}
+                  flight={flight}
+                  compact
+                  onClick={() => openFlight(flight)}
+                  onDoubleTap={() => onToggleDone(flight.id)}
+                />
               ))}
             </div>
           ) : step === 'detail' && selectedFlight ? (
@@ -1389,7 +1423,12 @@ const WatchApp: React.FC<{
           ) : (
             <div className="space-y-1.5">
               {visibleFlights.slice(0, 18).map((flight) => (
-                <WatchFlightCard key={flight.id} flight={flight} onClick={() => openFlight(flight)} />
+                <WatchFlightCard
+                  key={flight.id}
+                  flight={flight}
+                  onClick={() => openFlight(flight)}
+                  onDoubleTap={() => onToggleDone(flight.id)}
+                />
               ))}
             </div>
           )}
