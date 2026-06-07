@@ -108,7 +108,8 @@ type OCRFixModalProps = {
   t: any;
 };
 
-type WatchStep = 'timeline' | 'search' | 'destinations' | 'flights' | 'detail';
+type WatchStep = 'timeline' | 'search' | 'iataLetters' | 'iataCodes' | 'flightPrefixes' | 'flightList' | 'baiaGrid' | 'baiaFlights' | 'destinations' | 'flights' | 'detail';
+type WatchDetailReturn = 'timeline' | 'flights';
 
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
@@ -1044,44 +1045,12 @@ const WatchLocationName: React.FC<{ destination: string }> = ({ destination }) =
   return <>{location || destination}</>;
 };
 
-const getWatchSearchText = (flight: Flight) => {
-  const destination = flight.destination.trim().toUpperCase();
-  return [
-    flight.flightNumber,
-    destination,
-    flight.position,
-    flight.terminal,
-    getPositionType(flight.terminal, flight.position),
-    getCommonIataLocationName(destination, 'it'),
-  ].filter(Boolean).join(' ').toLowerCase();
-};
+const getWatchFlightPrefix = (flightNumber: string) =>
+  flightNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 2) || '--';
 
-const scoreWatchSearchMatch = (flight: Flight, query: string) => {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) {
-    return 1;
-  }
-
-  const compactQuery = normalizedQuery.replace(/\s+/g, '');
-  const flightCode = flight.flightNumber.toLowerCase();
-  const compactFlightCode = flightCode.replace(/\s+/g, '');
-  const destination = flight.destination.toLowerCase();
-  const position = flight.position.toLowerCase();
-  const searchText = getWatchSearchText(flight);
-
-  if (destination === normalizedQuery || position === normalizedQuery || compactFlightCode === compactQuery) {
-    return 100;
-  }
-
-  if (destination.startsWith(normalizedQuery) || compactFlightCode.startsWith(compactQuery) || position.startsWith(normalizedQuery)) {
-    return 80;
-  }
-
-  if (searchText.includes(normalizedQuery) || compactFlightCode.includes(compactQuery)) {
-    return 55;
-  }
-
-  return 0;
+const getWatchPositionSortValue = (position: string) => {
+  const match = position.match(/\d+/);
+  return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
 };
 
 const WatchApp: React.FC<{
@@ -1094,7 +1063,10 @@ const WatchApp: React.FC<{
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
-  const [watchSearchQuery, setWatchSearchQuery] = useState('');
+  const [selectedIataLetter, setSelectedIataLetter] = useState<string | null>(null);
+  const [selectedFlightPrefix, setSelectedFlightPrefix] = useState<string | null>(null);
+  const [selectedWatchPosition, setSelectedWatchPosition] = useState<string | null>(null);
+  const [detailReturn, setDetailReturn] = useState<WatchDetailReturn>('timeline');
 
   const baseVisibleFlights = useMemo(() => {
     const now = Date.now();
@@ -1125,15 +1097,7 @@ const WatchApp: React.FC<{
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
   }, [flights, filters]);
 
-  const predictiveFlights = useMemo(() => (
-    baseVisibleFlights
-      .map((flight) => ({ flight, score: scoreWatchSearchMatch(flight, watchSearchQuery) }))
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score || new Date(a.flight.std).getTime() - new Date(b.flight.std).getTime())
-      .map(({ flight }) => flight)
-  ), [baseVisibleFlights, watchSearchQuery]);
-
-  const visibleFlights = watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights;
+  const visibleFlights = baseVisibleFlights;
   const hasHiddenFlights = !isLoading && flights.length > 0 && baseVisibleFlights.length === 0;
   const statusLabel = `${visibleFlights.length}/${flights.length}`;
 
@@ -1152,11 +1116,35 @@ const WatchApp: React.FC<{
       .sort((a, b) => new Date(a.flights[0].std).getTime() - new Date(b.flights[0].std).getTime());
   }, [visibleFlights]);
 
-  const quickDestinations = useMemo(() => {
+  const iataLetters = useMemo(() => {
+    const letters = new Map<string, Flight>();
+    baseVisibleFlights.forEach((flight) => {
+      const code = flight.destination.trim().toUpperCase() || '---';
+      const letter = code[0] || '-';
+      if (!letters.has(letter)) {
+        letters.set(letter, flight);
+      }
+    });
+
+    return Array.from(letters.entries())
+      .map(([letter, flight]) => ({
+        letter,
+        firstStd: flight.std,
+      }))
+      .sort((a, b) => new Date(a.firstStd).getTime() - new Date(b.firstStd).getTime());
+  }, [baseVisibleFlights]);
+
+  const iataCodes = useMemo(() => {
+    if (!selectedIataLetter) {
+      return [];
+    }
+
     const grouped = new Map<string, Flight[]>();
     baseVisibleFlights.forEach((flight) => {
       const code = flight.destination.trim().toUpperCase() || '---';
-      grouped.set(code, [...(grouped.get(code) ?? []), flight]);
+      if (code.startsWith(selectedIataLetter)) {
+        grouped.set(code, [...(grouped.get(code) ?? []), flight]);
+      }
     });
 
     return Array.from(grouped.entries())
@@ -1165,7 +1153,48 @@ const WatchApp: React.FC<{
         flights: destinationFlights.sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime()),
       }))
       .sort((a, b) => new Date(a.flights[0].std).getTime() - new Date(b.flights[0].std).getTime());
+  }, [baseVisibleFlights, selectedIataLetter]);
+
+  const flightPrefixes = useMemo(() => {
+    const grouped = new Map<string, Flight>();
+    baseVisibleFlights.forEach((flight) => {
+      const prefix = getWatchFlightPrefix(flight.flightNumber);
+      if (!grouped.has(prefix)) {
+        grouped.set(prefix, flight);
+      }
+    });
+
+    return Array.from(grouped.entries())
+      .map(([prefix, flight]) => ({
+        prefix,
+        firstStd: flight.std,
+      }))
+      .sort((a, b) => new Date(a.firstStd).getTime() - new Date(b.firstStd).getTime());
   }, [baseVisibleFlights]);
+
+  const flightPrefixFlights = useMemo(() => {
+    if (!selectedFlightPrefix) {
+      return [];
+    }
+
+    return baseVisibleFlights.filter((flight) => getWatchFlightPrefix(flight.flightNumber) === selectedFlightPrefix);
+  }, [baseVisibleFlights, selectedFlightPrefix]);
+
+  const watchPositions = useMemo(() => (
+    Array.from(new Set<string>(baseVisibleFlights.map((flight) => flight.position.trim() || 'X')))
+      .sort((a, b) => {
+        const numericDiff = getWatchPositionSortValue(a) - getWatchPositionSortValue(b);
+        return numericDiff || a.localeCompare(b);
+      })
+  ), [baseVisibleFlights]);
+
+  const watchPositionFlights = useMemo(() => {
+    if (!selectedWatchPosition) {
+      return [];
+    }
+
+    return baseVisibleFlights.filter((flight) => (flight.position.trim() || 'X') === selectedWatchPosition);
+  }, [baseVisibleFlights, selectedWatchPosition]);
 
   const destinationFlights = useMemo(() => {
     if (!selectedDestination) {
@@ -1183,6 +1212,18 @@ const WatchApp: React.FC<{
     ? 'Dest'
     : step === 'search'
       ? 'Cerca'
+    : step === 'iataLetters'
+      ? 'IATA'
+    : step === 'iataCodes'
+      ? selectedIataLetter || 'IATA'
+    : step === 'flightPrefixes'
+      ? 'Volo'
+    : step === 'flightList'
+      ? selectedFlightPrefix || 'Volo'
+    : step === 'baiaGrid'
+      ? 'Baia'
+    : step === 'baiaFlights'
+      ? selectedWatchPosition || 'Baia'
     : step === 'flights'
       ? selectedDestination || 'Voli'
       : step === 'detail' && selectedFlight
@@ -1192,18 +1233,29 @@ const WatchApp: React.FC<{
   const goBack = () => {
     if (step === 'detail') {
       setSelectedFlightId(null);
-      setStep(selectedDestination ? 'flights' : 'timeline');
+      setStep(detailReturn === 'flights' && selectedDestination ? 'flights' : 'timeline');
       return;
     }
 
-    if (step === 'search') {
+    if (
+      step === 'search' ||
+      step === 'iataLetters' ||
+      step === 'iataCodes' ||
+      step === 'flightPrefixes' ||
+      step === 'flightList' ||
+      step === 'baiaGrid' ||
+      step === 'baiaFlights'
+    ) {
+      setSelectedIataLetter(null);
+      setSelectedFlightPrefix(null);
+      setSelectedWatchPosition(null);
       setStep('timeline');
       return;
     }
 
     if (step === 'flights') {
       setSelectedDestination(null);
-      setStep(watchSearchQuery.trim() ? 'search' : 'destinations');
+      setStep('destinations');
       return;
     }
 
@@ -1213,6 +1265,14 @@ const WatchApp: React.FC<{
   };
 
   const openFlight = (flight: Flight) => {
+    setDetailReturn('flights');
+    setSelectedFlightId(flight.id);
+    setSelectedDestination(flight.destination.trim().toUpperCase());
+    setStep('detail');
+  };
+
+  const openFlightFromSearch = (flight: Flight) => {
+    setDetailReturn('timeline');
     setSelectedFlightId(flight.id);
     setSelectedDestination(flight.destination.trim().toUpperCase());
     setStep('detail');
@@ -1253,7 +1313,9 @@ const WatchApp: React.FC<{
               onClick={() => {
                 setSelectedDestination(null);
                 setSelectedFlightId(null);
-                setWatchSearchQuery('');
+                setSelectedIataLetter(null);
+                setSelectedFlightPrefix(null);
+                setSelectedWatchPosition(null);
                 setStep('timeline');
               }}
               className="min-w-0 truncate text-center text-sm font-black uppercase text-emerald-300"
@@ -1263,7 +1325,11 @@ const WatchApp: React.FC<{
             <button
               type="button"
               onClick={() => {
+                setSelectedDestination(null);
                 setSelectedFlightId(null);
+                setSelectedIataLetter(null);
+                setSelectedFlightPrefix(null);
+                setSelectedWatchPosition(null);
                 setStep('search');
               }}
               className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.09] text-white/85"
@@ -1285,61 +1351,110 @@ const WatchApp: React.FC<{
             </div>
           ) : step === 'search' ? (
             <div className="space-y-2">
-              <label className="relative block">
-                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
-                <input
-                  value={watchSearchQuery}
-                  onChange={(event) => setWatchSearchQuery(event.target.value)}
-                  autoFocus
-                  inputMode="search"
-                  placeholder="Volo, baia, dest"
-                  className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.07] pl-9 pr-8 text-base font-black text-white outline-none placeholder:text-white/30"
+              {[
+                ['IATA', 'iataLetters'],
+                ['Flight', 'flightPrefixes'],
+                ['BAIA', 'baiaGrid'],
+              ].map(([label, nextStep]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setStep(nextStep as WatchStep)}
+                  className="flex min-h-[4.25rem] w-full items-center justify-center rounded-xl bg-white/[0.07] text-2xl font-black text-white active:scale-[0.99]"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : step === 'iataLetters' ? (
+            <div className="grid grid-cols-3 gap-1.5">
+              {iataLetters.map(({ letter, firstStd }) => (
+                <button
+                  key={letter}
+                  type="button"
+                  onClick={() => {
+                    setSelectedIataLetter(letter);
+                    setStep('iataCodes');
+                  }}
+                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
+                >
+                  <div className="text-2xl font-black leading-none text-white">{letter}</div>
+                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
+                </button>
+              ))}
+            </div>
+          ) : step === 'iataCodes' ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {iataCodes.map(({ code, flights: codeFlights }) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => openFlightFromSearch(codeFlights[0])}
+                  className="min-h-14 rounded-lg bg-white/[0.06] px-1.5 text-center active:scale-[0.98]"
+                >
+                  <div className="truncate text-2xl font-black leading-none text-white">{code}</div>
+                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">
+                    {formatHHmm(codeFlights[0].std)}
+                    {codeFlights.length > 1 && <span className="ml-1 text-white/40">{codeFlights.length}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : step === 'flightPrefixes' ? (
+            <div className="grid grid-cols-3 gap-1.5">
+              {flightPrefixes.map(({ prefix, firstStd }) => (
+                <button
+                  key={prefix}
+                  type="button"
+                  onClick={() => {
+                    setSelectedFlightPrefix(prefix);
+                    setStep('flightList');
+                  }}
+                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
+                >
+                  <div className="text-2xl font-black leading-none text-white">{prefix}</div>
+                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
+                </button>
+              ))}
+            </div>
+          ) : step === 'flightList' ? (
+            <div className="space-y-1.5">
+              {flightPrefixFlights.map((flight) => (
+                <WatchFlightCard
+                  key={`flight-prefix-${flight.id}`}
+                  flight={flight}
+                  compact
+                  onClick={() => openFlightFromSearch(flight)}
+                  onDoubleTap={() => onToggleDone(flight.id)}
                 />
-                {watchSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setWatchSearchQuery('')}
-                    className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-white/[0.08] text-white/60"
-                    aria-label="Clear search"
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </label>
-
-              <div className="grid grid-cols-3 gap-1.5">
-                {quickDestinations.slice(0, 6).map(({ code }) => (
-                  <button
-                    key={`quick-${code}`}
-                    type="button"
-                    onClick={() => {
-                      setWatchSearchQuery(code);
-                      selectDestination(code);
-                    }}
-                    className="min-h-10 rounded-lg bg-white/[0.06] px-1 text-sm font-black text-white/80 active:scale-[0.98]"
-                  >
-                    {code}
-                  </button>
-                ))}
-              </div>
-
-              <div className="space-y-1.5">
-                {(watchSearchQuery.trim() ? predictiveFlights : baseVisibleFlights).slice(0, 8).map((flight) => (
-                  <WatchFlightCard
-                    key={`search-${flight.id}`}
-                    flight={flight}
-                    compact
-                    onClick={() => openFlight(flight)}
-                    onDoubleTap={() => onToggleDone(flight.id)}
-                  />
-                ))}
-              </div>
-
-              {watchSearchQuery.trim() && predictiveFlights.length === 0 && (
-                <div className="rounded-lg bg-white/[0.055] p-3 text-center text-sm font-bold leading-snug text-white/50">
-                  Nessun match
-                </div>
-              )}
+              ))}
+            </div>
+          ) : step === 'baiaGrid' ? (
+            <div className="grid grid-cols-3 gap-1.5">
+              {watchPositions.map((position) => (
+                <button
+                  key={position}
+                  type="button"
+                  onClick={() => {
+                    setSelectedWatchPosition(position);
+                    setStep('baiaFlights');
+                  }}
+                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center text-2xl font-black text-white active:scale-[0.98]"
+                >
+                  {position}
+                </button>
+              ))}
+            </div>
+          ) : step === 'baiaFlights' ? (
+            <div className="space-y-1.5">
+              {watchPositionFlights.map((flight) => (
+                <WatchFlightCard
+                  key={`watch-position-${flight.id}`}
+                  flight={flight}
+                  onClick={() => openFlightFromSearch(flight)}
+                  onDoubleTap={() => onToggleDone(flight.id)}
+                />
+              ))}
             </div>
           ) : step === 'destinations' ? (
             <div className="space-y-1.5">
