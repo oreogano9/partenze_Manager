@@ -950,13 +950,16 @@ const OCRFixModal: React.FC<OCRFixModalProps> = ({ flight, onFieldChange, onSkip
 const WatchFlightCard: React.FC<{
   flight: Flight;
   compact?: boolean;
+  isConnectedToNext?: boolean;
+  nextUrgencyColor?: string;
   onClick: () => void;
   onDoubleTap: () => void;
-}> = ({ flight, compact = false, onClick, onDoubleTap }) => {
+}> = ({ flight, compact = false, isConnectedToNext = false, nextUrgencyColor, onClick, onDoubleTap }) => {
   const minutesToTarget = getMinutesToTarget(flight.std);
   const urgencyColor = getUrgencyColor(minutesToTarget);
   const targetLabel = formatDuration(minutesToTarget);
   const positionType = getPositionType(flight.terminal, flight.position);
+  const isDimmed = Boolean(flight.doneAt) || minutesToTarget <= 0;
   const tapTimeoutRef = useRef<number | null>(null);
 
   const handleClick = () => {
@@ -983,17 +986,27 @@ const WatchFlightCard: React.FC<{
     <button
       type="button"
       onClick={handleClick}
-      className={`grid min-h-[3.7rem] w-full grid-cols-[3.25rem_1fr] gap-2 rounded-lg px-2 py-2 text-left active:scale-[0.99] ${
-        flight.doneAt ? 'bg-emerald-500/10 opacity-60' : 'bg-white/[0.055]'
+      className={`relative grid min-h-[3.7rem] w-full grid-cols-[3.25rem_1fr] gap-2 overflow-visible rounded-lg px-2 py-2 text-left active:scale-[0.99] ${
+        flight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.055]'
+      } ${
+        isDimmed ? 'opacity-50' : ''
       }`}
     >
       <div
-        className="flex h-full min-h-12 flex-col items-center justify-center rounded-md text-white"
+        className="relative z-10 flex h-full min-h-12 flex-col items-center justify-center rounded-md text-white"
         style={{ backgroundColor: urgencyColor }}
       >
         <span className="text-xl font-black leading-none">{flight.position || 'X'}</span>
         <span className="mt-0.5 text-[10px] font-black leading-none">{flight.terminal}</span>
       </div>
+      {isConnectedToNext && (
+        <div
+          className="pointer-events-none absolute left-[2.125rem] top-[calc(100%-0.35rem)] z-[1] h-5 w-1.5 -translate-x-1/2 rounded-full opacity-80"
+          style={{
+            background: `linear-gradient(to bottom, ${urgencyColor}, ${nextUrgencyColor || urgencyColor})`,
+          }}
+        />
+      )}
       <div className="min-w-0 self-center">
         <div className="flex min-w-0 items-baseline justify-between gap-1">
           <span className="truncate text-[1.15rem] font-black leading-none text-white">{flight.destination}</span>
@@ -1056,10 +1069,11 @@ const getWatchPositionSortValue = (position: string) => {
 const WatchApp: React.FC<{
   flights: Flight[];
   filters: SharedBoardFilters;
+  connectionThreshold: 5 | 10;
   isLoading: boolean;
   sharedStatus: SharedBoardStatus;
   onToggleDone: (id: string) => void;
-}> = ({ flights, filters, isLoading, sharedStatus, onToggleDone }) => {
+}> = ({ flights, filters, connectionThreshold, isLoading, sharedStatus, onToggleDone }) => {
   const [step, setStep] = useState<WatchStep>('timeline');
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
@@ -1076,6 +1090,7 @@ const WatchApp: React.FC<{
 
     return flights
       .filter((flight) => !Number.isNaN(new Date(flight.std).getTime()))
+      .filter((flight) => getMinutesToTarget(flight.std) > -10)
       .filter((flight) => {
         const flightTime = new Date(flight.std);
         const minutesToSTD = Math.floor((flightTime.getTime() - now) / 60000);
@@ -1291,6 +1306,40 @@ const WatchApp: React.FC<{
     setStep('flights');
   };
 
+  const renderWatchFlightList = (
+    flightList: Flight[],
+    options?: {
+      compact?: boolean;
+      keyPrefix?: string;
+      openFlightOverride?: (flight: Flight) => void;
+    },
+  ) => (
+    <div className="space-y-1.5">
+      {flightList.map((flight, index) => {
+        const nextFlight = flightList[index + 1];
+        const isConnectedToNext = Boolean(
+          nextFlight &&
+          new Date(nextFlight.std).getTime() - new Date(flight.std).getTime() <= connectionThreshold * 60000,
+        );
+        const nextUrgencyColor = nextFlight
+          ? getUrgencyColor(getMinutesToTarget(nextFlight.std))
+          : undefined;
+
+        return (
+          <WatchFlightCard
+            key={`${options?.keyPrefix ?? 'watch'}-${flight.id}`}
+            flight={flight}
+            compact={options?.compact}
+            isConnectedToNext={isConnectedToNext}
+            nextUrgencyColor={nextUrgencyColor}
+            onClick={() => (options?.openFlightOverride ?? openFlight)(flight)}
+            onDoubleTap={() => onToggleDone(flight.id)}
+          />
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex min-h-screen w-screen max-w-none flex-col px-1 py-1">
@@ -1418,17 +1467,11 @@ const WatchApp: React.FC<{
               ))}
             </div>
           ) : step === 'flightList' ? (
-            <div className="space-y-1.5">
-              {flightPrefixFlights.map((flight) => (
-                <WatchFlightCard
-                  key={`flight-prefix-${flight.id}`}
-                  flight={flight}
-                  compact
-                  onClick={() => openFlightFromSearch(flight)}
-                  onDoubleTap={() => onToggleDone(flight.id)}
-                />
-              ))}
-            </div>
+            renderWatchFlightList(flightPrefixFlights, {
+              compact: true,
+              keyPrefix: 'flight-prefix',
+              openFlightOverride: openFlightFromSearch,
+            })
           ) : step === 'baiaGrid' ? (
             <div className="grid grid-cols-3 gap-1.5">
               {watchPositions.map((position) => (
@@ -1446,16 +1489,10 @@ const WatchApp: React.FC<{
               ))}
             </div>
           ) : step === 'baiaFlights' ? (
-            <div className="space-y-1.5">
-              {watchPositionFlights.map((flight) => (
-                <WatchFlightCard
-                  key={`watch-position-${flight.id}`}
-                  flight={flight}
-                  onClick={() => openFlightFromSearch(flight)}
-                  onDoubleTap={() => onToggleDone(flight.id)}
-                />
-              ))}
-            </div>
+            renderWatchFlightList(watchPositionFlights, {
+              keyPrefix: 'watch-position',
+              openFlightOverride: openFlightFromSearch,
+            })
           ) : step === 'destinations' ? (
             <div className="space-y-1.5">
               {destinations.map(({ code, flights: destinationGroup }) => (
@@ -1481,15 +1518,7 @@ const WatchApp: React.FC<{
                   {selectedDestination && <WatchLocationName destination={selectedDestination} />}
                 </div>
               </div>
-              {destinationFlights.map((flight) => (
-                <WatchFlightCard
-                  key={flight.id}
-                  flight={flight}
-                  compact
-                  onClick={() => openFlight(flight)}
-                  onDoubleTap={() => onToggleDone(flight.id)}
-                />
-              ))}
+              {renderWatchFlightList(destinationFlights, { compact: true, keyPrefix: 'destination' })}
             </div>
           ) : step === 'detail' && selectedFlight ? (
             <div className="space-y-2">
@@ -1539,16 +1568,7 @@ const WatchApp: React.FC<{
               )}
             </div>
           ) : (
-            <div className="space-y-1.5">
-              {visibleFlights.slice(0, 18).map((flight) => (
-                <WatchFlightCard
-                  key={flight.id}
-                  flight={flight}
-                  onClick={() => openFlight(flight)}
-                  onDoubleTap={() => onToggleDone(flight.id)}
-                />
-              ))}
-            </div>
+            renderWatchFlightList(visibleFlights.slice(0, 18))
           )}
         </main>
       </div>
@@ -2396,6 +2416,7 @@ export default function App() {
       <WatchApp
         flights={state.flights}
         filters={sharedBoardFilters}
+        connectionThreshold={connectionThreshold}
         isLoading={isLoadingSharedBoard}
         sharedStatus={sharedBoardStatus}
         onToggleDone={handleWatchDoneToggle}
