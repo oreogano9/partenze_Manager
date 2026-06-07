@@ -13,6 +13,14 @@ import { motion, AnimatePresence } from 'motion/react';
 type OCRReviewFlight = OCRFlightCandidate & { selected: boolean };
 type OCRReviewPreview = { previewUrl: string; fileName: string };
 type OCRReviewState = { flights: OCRReviewFlight[]; text: string; previews: OCRReviewPreview[] };
+type OCRImportStatus = 'queued' | 'processing' | 'done' | 'failed';
+type OCRImportProgressItem = {
+  id: string;
+  fileName: string;
+  status: OCRImportStatus;
+  progress: number;
+  message?: string;
+};
 type ScanTerminalMode = 'AUTO' | TerminalType;
 type MergeStatus = 'new' | 'update' | 'unchanged';
 type MergeField = 'flightNumber' | 'destination' | 'std' | 'position';
@@ -149,16 +157,11 @@ const inferTerminalFromNonOverlappingPosition = (position: string): TerminalType
 const getFlightCodeKey = (flightNumber: string) => normalizeFlightCode(flightNumber).replace(/\s+/g, '');
 
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
-const isUnassignedPosition = (position: string) => {
-  const normalized = position.trim();
-  return normalized === '/' || normalized === '\\';
-};
-const hasValidRequiredPosition = (position: string) => Boolean(position.trim() || isUnassignedPosition(position));
+const normalizeOcrPosition = (position: string) => position.trim().toUpperCase() || '/';
 const isOcrFlightComplete = (flight: Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal' | 'position'>) =>
   Boolean(
     getFlightCodeKey(flight.flightNumber) &&
     flight.destination.trim() &&
-    hasValidRequiredPosition(flight.position) &&
     (flight.terminal === 'T1' || flight.terminal === 'T3') &&
     isValidOcrStd(flight.std)
   );
@@ -168,7 +171,6 @@ const getFirstMissingOcrField = (flight: Pick<Flight, 'flightNumber' | 'destinat
   if (!flight.destination.trim()) return 'destination';
   if (!isValidOcrStd(flight.std)) return 'std';
   if (!(flight.terminal === 'T1' || flight.terminal === 'T3')) return 'terminal';
-  if (!hasValidRequiredPosition(flight.position)) return 'position';
   return null;
 };
 
@@ -315,7 +317,6 @@ const canImportOcrFlight = (flight: OCRReviewFlight, existingFlights: Flight[]) 
 
   return Boolean(
     getFlightCodeOnlyKey(flight) &&
-    hasValidRequiredPosition(flight.position) &&
     isValidOcrStd(flight.std) &&
     (flight.terminal === 'T1' || flight.terminal === 'T3') &&
     existingFlights.some((existingFlight) => getFlightCodeOnlyKey(existingFlight) === getFlightCodeOnlyKey(flight)),
@@ -1307,6 +1308,7 @@ export default function App() {
   const [showShiftMenu, setShowShiftMenu] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrImportItems, setOcrImportItems] = useState<OCRImportProgressItem[]>([]);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
   const [ocrFixFlightId, setOcrFixFlightId] = useState<string | null>(null);
   const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
@@ -1522,6 +1524,8 @@ export default function App() {
   const closeOcrReview = () => {
     setOcrFixFlightId(null);
     setMobileOcrPanel('flights');
+    setOcrImportItems([]);
+    setOcrProgress(0);
     setOcrReview(prev => {
       prev?.previews.forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
       return null;
@@ -1580,6 +1584,7 @@ export default function App() {
     const finalizedFlights = selectedFlights.map((flight) => ({
       ...flight,
       flightNumber: normalizeFlightCode(flight.flightNumber),
+      position: normalizeOcrPosition(flight.position),
       importedAt,
     }));
 
@@ -1595,6 +1600,12 @@ export default function App() {
     closeOcrReview();
   };
 
+  const updateOcrImportItem = (id: string, patch: Partial<OCRImportProgressItem>) => {
+    setOcrImportItems(prev => prev.map((item) => (
+      item.id === id ? { ...item, ...patch } : item
+    )));
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []) as File[];
     if (files.length === 0) {
@@ -1604,51 +1615,76 @@ export default function App() {
     setOcrError(null);
     setIsExtracting(true);
     setOcrProgress(0);
+    const importItems = files.map((file, index) => ({
+      id: `${Date.now()}-${index}-${file.name}`,
+      fileName: file.name,
+      status: 'queued',
+      progress: 0,
+    })) satisfies OCRImportProgressItem[];
+    setOcrImportItems(importItems);
 
     try {
       for (const [fileIndex, file] of files.entries()) {
-        const result = await extractFlightsFromImage(file, scanTerminal === 'AUTO' ? undefined : scanTerminal, progress => {
-          setOcrProgress(Math.round(((fileIndex + progress / 100) / files.length) * 100));
-        });
+        const itemId = importItems[fileIndex].id;
+        setOcrImportItems(prev => prev.map((item, index) => (
+          index === fileIndex ? { ...item, status: 'processing', progress: 3, message: t.processingImage } : item
+        )));
 
-        const previewUrl = URL.createObjectURL(file);
-        setOcrReview(prev => {
-          const nextFlights = result.flights.map(flight => {
-            const inferredTerminal = scanTerminal === 'AUTO'
-              ? inferTerminalFromNonOverlappingPosition(flight.position)
-              : null;
-
-            return {
-              ...flight,
-              terminal: inferredTerminal ?? flight.terminal ?? scanTerminalFallback,
-              flightNumber: normalizeFlightCode(flight.flightNumber),
-              selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
-            };
+        try {
+          const result = await extractFlightsFromImage(file, scanTerminal === 'AUTO' ? undefined : scanTerminal, progress => {
+            const progressFraction = progress <= 1 ? progress : progress / 100;
+            const normalizedProgress = Math.max(0, Math.min(100, Math.round(progressFraction * 100)));
+            updateOcrImportItem(itemId, {
+              status: 'processing',
+              progress: normalizedProgress,
+              message: normalizedProgress < 55 ? t.uploadingImage : t.readingImage,
+            });
+            setOcrProgress(Math.round(((fileIndex + progressFraction) / files.length) * 100));
           });
 
-          if (!prev) {
-            setMobileOcrPanel('flights');
-            return {
-              text: result.text,
-              flights: nextFlights,
-              previews: [{ previewUrl, fileName: file.name }],
-            };
-          }
+          const previewUrl = URL.createObjectURL(file);
+          setOcrReview(prev => {
+            const nextFlights = result.flights.map(flight => {
+              const position = normalizeOcrPosition(flight.position);
+              const inferredTerminal = scanTerminal === 'AUTO'
+                ? inferTerminalFromNonOverlappingPosition(position)
+                : null;
 
-          return {
-            text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
-            flights: mergeOcrFlightLists(prev.flights, nextFlights),
-            previews: [...prev.previews, { previewUrl, fileName: file.name }],
-          };
-        });
+              return {
+                ...flight,
+                position,
+                terminal: inferredTerminal ?? flight.terminal ?? scanTerminalFallback,
+                flightNumber: normalizeFlightCode(flight.flightNumber),
+                selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
+              };
+            });
+
+            if (!prev) {
+              setMobileOcrPanel('flights');
+              return {
+                text: result.text,
+                flights: nextFlights,
+                previews: [{ previewUrl, fileName: file.name }],
+              };
+            }
+
+            return {
+              text: [prev.text, result.text].filter(Boolean).join('\n\n-----\n\n'),
+              flights: mergeOcrFlightLists(prev.flights, nextFlights),
+              previews: [...prev.previews, { previewUrl, fileName: file.name }],
+            };
+          });
+          updateOcrImportItem(itemId, { status: 'done', progress: 100, message: t.completedImage });
+        } catch (error) {
+          console.error('OCR extraction failed', error);
+          const message = error instanceof Error ? error.message : 'OCR failed on this image.';
+          updateOcrImportItem(itemId, { status: 'failed', progress: 100, message });
+          setOcrError(message);
+        }
       }
-    } catch (error) {
-      console.error('OCR extraction failed', error);
-      const message = error instanceof Error ? error.message : 'OCR failed on this image.';
-      setOcrError(message);
     } finally {
       setIsExtracting(false);
-      setOcrProgress(0);
+      setOcrProgress(100);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -2035,6 +2071,10 @@ export default function App() {
     }
   }, [ocrReview, ocrFixFlightId, state.flights]);
   const latestOcrPreview = ocrReview ? ocrReview.previews[ocrReview.previews.length - 1] : null;
+  const ocrImportDoneCount = ocrImportItems.filter((item) => item.status === 'done').length;
+  const ocrImportFailedCount = ocrImportItems.filter((item) => item.status === 'failed').length;
+  const ocrImportFinishedCount = ocrImportDoneCount + ocrImportFailedCount;
+  const showOcrImportProgress = isExtracting || ocrImportItems.length > 0;
   const annotatedOcrText = useMemo(() => {
     if (!ocrReview) {
       return '';
@@ -2445,6 +2485,56 @@ export default function App() {
           </div>
         )}
 
+        {showOcrImportProgress && (
+          <div className="mb-6 rounded-2xl border border-white/10 bg-[#111111] p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">{t.importProgress}</p>
+                <p className="mt-1 text-xs text-white/45">
+                  {ocrImportFinishedCount}/{ocrImportItems.length} {t.imagesProcessed}
+                  {ocrImportFailedCount > 0 ? ` - ${ocrImportFailedCount} ${t.failedImages}` : ''}
+                </p>
+              </div>
+              {isExtracting && <Loader2 size={18} className="shrink-0 animate-spin text-emerald-300" />}
+            </div>
+            <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-emerald-400 transition-all"
+                style={{ width: `${Math.max(0, Math.min(100, ocrProgress))}%` }}
+              />
+            </div>
+            <div className="space-y-2">
+              {ocrImportItems.map((item, index) => (
+                <div key={item.id} className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-black ${
+                    item.status === 'failed'
+                      ? 'bg-rose-500/15 text-rose-200'
+                      : item.status === 'done'
+                        ? 'bg-emerald-500/15 text-emerald-200'
+                        : 'bg-white/10 text-white/50'
+                  }`}>
+                    {item.status === 'done' ? <Check size={14} /> : item.status === 'failed' ? <X size={14} /> : index + 1}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-xs font-bold text-white/80">{item.fileName}</p>
+                      <p className="shrink-0 text-[10px] font-black uppercase text-white/35">
+                        {item.status === 'queued' ? t.queuedImage : item.message ?? `${item.progress}%`}
+                      </p>
+                    </div>
+                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={`h-full rounded-full transition-all ${item.status === 'failed' ? 'bg-rose-400' : 'bg-emerald-400'}`}
+                        style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Flight List */}
         <div className="space-y-0">
           {shouldShowOnboardingEmptyState ? (
@@ -2795,6 +2885,45 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  {showOcrImportProgress && (
+                    <div className="border-b border-white/5 px-4 py-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300">{t.importProgress}</p>
+                        <p className="text-[10px] font-black text-white/45">
+                          {ocrImportFinishedCount}/{ocrImportItems.length} {t.imagesProcessed}
+                        </p>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {ocrImportItems.map((item, index) => (
+                          <div key={`modal-${item.id}`} className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
+                            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-black ${
+                              item.status === 'failed'
+                                ? 'bg-rose-500/15 text-rose-200'
+                                : item.status === 'done'
+                                  ? 'bg-emerald-500/15 text-emerald-200'
+                                  : 'bg-white/10 text-white/50'
+                            }`}>
+                              {item.status === 'done' ? <Check size={12} /> : item.status === 'failed' ? <X size={12} /> : index + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-[11px] font-bold text-white/75">{item.fileName}</p>
+                                <p className="shrink-0 text-[9px] font-black uppercase text-white/35">
+                                  {item.status === 'queued' ? t.queuedImage : item.message ?? `${item.progress}%`}
+                                </p>
+                              </div>
+                              <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                                <div
+                                  className={`h-full rounded-full transition-all ${item.status === 'failed' ? 'bg-rose-400' : 'bg-emerald-400'}`}
+                                  style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="px-4 pt-4 lg:hidden">
                     <div className="flex rounded-2xl border border-white/10 bg-white/[0.03] p-1">
                       <button
