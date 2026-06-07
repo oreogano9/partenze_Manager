@@ -986,41 +986,41 @@ const WatchFlightCard: React.FC<{
     <button
       type="button"
       onClick={handleClick}
-      className={`relative grid min-h-[3.7rem] w-full grid-cols-[3.25rem_1fr] gap-2 overflow-visible rounded-lg px-2 py-2 text-left active:scale-[0.99] ${
+      className={`relative grid min-h-[4.9rem] w-full grid-cols-[4.3rem_1fr] gap-2.5 overflow-visible rounded-lg px-2.5 py-2.5 text-left active:scale-[0.99] ${
         flight.doneAt ? 'bg-emerald-500/10' : 'bg-white/[0.055]'
       } ${
         isDimmed ? 'opacity-50' : ''
       }`}
     >
       <div
-        className="relative z-10 flex h-full min-h-12 flex-col items-center justify-center rounded-md text-white"
+        className="relative z-10 flex h-full min-h-16 flex-col items-center justify-center rounded-md text-white"
         style={{ backgroundColor: urgencyColor }}
       >
-        <span className="text-xl font-black leading-none">{flight.position || 'X'}</span>
-        <span className="mt-0.5 text-[10px] font-black leading-none">{flight.terminal}</span>
+        <span className="text-[1.65rem] font-black leading-none">{flight.position || 'X'}</span>
+        <span className="mt-1 text-[13px] font-black leading-none">{flight.terminal}</span>
       </div>
       {isConnectedToNext && (
         <div
-          className="pointer-events-none absolute left-[2.125rem] top-[calc(100%-0.35rem)] z-[1] h-5 w-1.5 -translate-x-1/2 rounded-full opacity-80"
+          className="pointer-events-none absolute left-[2.8rem] top-[calc(100%-0.45rem)] z-[1] h-7 w-2 -translate-x-1/2 rounded-full opacity-80"
           style={{
             background: `linear-gradient(to bottom, ${urgencyColor}, ${nextUrgencyColor || urgencyColor})`,
           }}
         />
       )}
       <div className="min-w-0 self-center">
-        <div className="flex min-w-0 items-baseline justify-between gap-1">
-          <span className="truncate text-[1.15rem] font-black leading-none text-white">{flight.destination}</span>
-          <span className="shrink-0 text-base font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
+        <div className="flex min-w-0 items-baseline justify-between gap-1.5">
+          <span className="truncate text-[1.5rem] font-black leading-none text-white">{flight.destination}</span>
+          <span className="shrink-0 text-xl font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
         </div>
-        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-1 text-[11px] font-bold leading-none text-white/55">
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-1.5 text-sm font-bold leading-none text-white/55">
           <span className="truncate">{flight.flightNumber}</span>
           <span className="flex shrink-0 items-center gap-1 text-white/65">
-            {flight.doneAt && <Check size={10} className="text-emerald-200" />}
+            {flight.doneAt && <Check size={13} className="text-emerald-200" />}
             {targetLabel}
           </span>
         </div>
         {!compact && (
-          <div className="mt-1 flex items-center justify-between gap-1 text-[10px] font-bold leading-none text-white/35">
+          <div className="mt-1.5 flex items-center justify-between gap-1.5 text-[13px] font-bold leading-none text-white/35">
             <span>{positionType}</span>
             {flight.tot && <span className="truncate text-emerald-200/80">{flight.tot}</span>}
           </div>
@@ -1314,7 +1314,7 @@ const WatchApp: React.FC<{
       openFlightOverride?: (flight: Flight) => void;
     },
   ) => (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {flightList.map((flight, index) => {
         const nextFlight = flightList[index + 1];
         const isConnectedToNext = Boolean(
@@ -1342,20 +1342,20 @@ const WatchApp: React.FC<{
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen w-screen max-w-none flex-col px-1 py-1">
-        <div className="mb-1 rounded-md bg-white/[0.045] px-1.5 py-1 text-center text-[10px] font-black text-white/35">
+      <div className="flex min-h-screen w-full max-w-none flex-col px-1 py-1">
+        <div className="mb-1.5 rounded-md bg-white/[0.045] px-2 py-1.5 text-center text-[13px] font-black text-white/35">
           {statusLabel}
         </div>
-        <header className="sticky top-0 z-10 -mx-1 bg-black/95 px-1 pb-1.5 pt-0.5">
-          <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1">
+        <header className="sticky top-0 z-10 -mx-1 bg-black/95 px-1 pb-2 pt-0.5">
+          <div className="grid grid-cols-[3.65rem_minmax(0,1fr)_3.65rem] items-center gap-1.5">
             <button
               type="button"
               onClick={goBack}
               disabled={step === 'timeline'}
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.09] text-white/85 disabled:opacity-15"
+              className="flex h-[3.65rem] w-[3.65rem] items-center justify-center rounded-xl bg-white/[0.09] text-white/85 disabled:opacity-15"
               aria-label="Back"
             >
-              <ArrowLeft size={19} />
+              <ArrowLeft size={25} />
             </button>
             <button
               type="button"
@@ -1367,7 +1367,7 @@ const WatchApp: React.FC<{
                 setSelectedWatchPosition(null);
                 setStep('timeline');
               }}
-              className="min-w-0 truncate text-center text-sm font-black uppercase text-emerald-300"
+              className="min-w-0 truncate text-center text-[1.15rem] font-black uppercase text-emerald-300"
             >
               {stepLabel}
             </button>
@@ -1381,25 +1381,25 @@ const WatchApp: React.FC<{
                 setSelectedWatchPosition(null);
                 setStep('search');
               }}
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.09] text-white/85"
+              className="flex h-[3.65rem] w-[3.65rem] items-center justify-center rounded-xl bg-white/[0.09] text-white/85"
               aria-label="Search"
             >
-              <Search size={19} />
+              <Search size={25} />
             </button>
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-auto pb-1">
+        <main className="min-h-0 flex-1 overflow-auto pb-1.5">
           {isLoading ? (
-            <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold text-white/50">
+            <div className="rounded-md bg-white/[0.055] p-4 text-center text-base font-bold text-white/50">
               Carico voli...
             </div>
           ) : visibleFlights.length === 0 ? (
-            <div className="rounded-md bg-white/[0.055] p-3 text-center text-xs font-bold leading-snug text-white/50">
+            <div className="rounded-md bg-white/[0.055] p-4 text-center text-base font-bold leading-snug text-white/50">
               {hasHiddenFlights ? `${flights.length} filtrati` : 'Nessun volo'}
             </div>
           ) : step === 'search' ? (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {[
                 ['IATA', 'iataLetters'],
                 ['Flight', 'flightPrefixes'],
@@ -1409,14 +1409,14 @@ const WatchApp: React.FC<{
                   key={label}
                   type="button"
                   onClick={() => setStep(nextStep as WatchStep)}
-                  className="flex min-h-[4.25rem] w-full items-center justify-center rounded-xl bg-white/[0.07] text-2xl font-black text-white active:scale-[0.99]"
+                  className="flex min-h-[5.65rem] w-full items-center justify-center rounded-xl bg-white/[0.07] text-[2rem] font-black text-white active:scale-[0.99]"
                 >
                   {label}
                 </button>
               ))}
             </div>
           ) : step === 'iataLetters' ? (
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {iataLetters.map(({ letter, firstStd }) => (
                 <button
                   key={letter}
@@ -1425,32 +1425,32 @@ const WatchApp: React.FC<{
                     setSelectedIataLetter(letter);
                     setStep('iataCodes');
                   }}
-                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
+                  className="min-h-[4.65rem] rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
                 >
-                  <div className="text-2xl font-black leading-none text-white">{letter}</div>
-                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
+                  <div className="text-[2rem] font-black leading-none text-white">{letter}</div>
+                  <div className="mt-1.5 text-[13px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
                 </button>
               ))}
             </div>
           ) : step === 'iataCodes' ? (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-2">
               {iataCodes.map(({ code, flights: codeFlights }) => (
                 <button
                   key={code}
                   type="button"
                   onClick={() => openFlightFromSearch(codeFlights[0])}
-                  className="min-h-14 rounded-lg bg-white/[0.06] px-1.5 text-center active:scale-[0.98]"
+                  className="min-h-[4.65rem] rounded-lg bg-white/[0.06] px-2 text-center active:scale-[0.98]"
                 >
-                  <div className="truncate text-2xl font-black leading-none text-white">{code}</div>
-                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">
+                  <div className="truncate text-[2rem] font-black leading-none text-white">{code}</div>
+                  <div className="mt-1.5 text-[13px] font-black leading-none text-emerald-200">
                     {formatHHmm(codeFlights[0].std)}
-                    {codeFlights.length > 1 && <span className="ml-1 text-white/40">{codeFlights.length}</span>}
+                    {codeFlights.length > 1 && <span className="ml-1.5 text-white/40">{codeFlights.length}</span>}
                   </div>
                 </button>
               ))}
             </div>
           ) : step === 'flightPrefixes' ? (
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {flightPrefixes.map(({ prefix, firstStd }) => (
                 <button
                   key={prefix}
@@ -1459,10 +1459,10 @@ const WatchApp: React.FC<{
                     setSelectedFlightPrefix(prefix);
                     setStep('flightList');
                   }}
-                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
+                  className="min-h-[4.65rem] rounded-lg bg-white/[0.06] px-1 text-center active:scale-[0.98]"
                 >
-                  <div className="text-2xl font-black leading-none text-white">{prefix}</div>
-                  <div className="mt-1 text-[10px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
+                  <div className="text-[2rem] font-black leading-none text-white">{prefix}</div>
+                  <div className="mt-1.5 text-[13px] font-black leading-none text-emerald-200">{formatHHmm(firstStd)}</div>
                 </button>
               ))}
             </div>
@@ -1473,7 +1473,7 @@ const WatchApp: React.FC<{
               openFlightOverride: openFlightFromSearch,
             })
           ) : step === 'baiaGrid' ? (
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {watchPositions.map((position) => (
                 <button
                   key={position}
@@ -1482,7 +1482,7 @@ const WatchApp: React.FC<{
                     setSelectedWatchPosition(position);
                     setStep('baiaFlights');
                   }}
-                  className="min-h-14 rounded-lg bg-white/[0.06] px-1 text-center text-2xl font-black text-white active:scale-[0.98]"
+                  className="min-h-[4.65rem] rounded-lg bg-white/[0.06] px-1 text-center text-[2rem] font-black text-white active:scale-[0.98]"
                 >
                   {position}
                 </button>
@@ -1494,76 +1494,76 @@ const WatchApp: React.FC<{
               openFlightOverride: openFlightFromSearch,
             })
           ) : step === 'destinations' ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {destinations.map(({ code, flights: destinationGroup }) => (
                 <button
                   key={code}
                   type="button"
                   onClick={() => selectDestination(code)}
-                  className="grid min-h-14 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-lg bg-white/[0.055] px-2.5 py-2 text-left active:scale-[0.99]"
+                  className="grid min-h-[4.65rem] w-full grid-cols-[1fr_auto] items-center gap-2.5 rounded-lg bg-white/[0.055] px-3 py-2.5 text-left active:scale-[0.99]"
                 >
-                  <span className="truncate text-2xl font-black leading-none">{code}</span>
-                  <span className="text-right text-sm font-black leading-tight text-emerald-200">
+                  <span className="truncate text-[2rem] font-black leading-none">{code}</span>
+                  <span className="text-right text-[1.15rem] font-black leading-tight text-emerald-200">
                     {formatHHmm(destinationGroup[0].std)}
-                    <span className="ml-1 text-[10px] text-white/40">{destinationGroup.length}</span>
+                    <span className="ml-1.5 text-[13px] text-white/40">{destinationGroup.length}</span>
                   </span>
                 </button>
               ))}
             </div>
           ) : step === 'flights' ? (
-            <div className="space-y-1.5">
-              <div className="rounded-lg bg-white/[0.04] px-2.5 py-2">
-                <div className="text-2xl font-black leading-none">{selectedDestination}</div>
-                <div className="mt-1 truncate text-xs font-bold leading-none text-white/45">
+            <div className="space-y-2">
+              <div className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+                <div className="text-[2rem] font-black leading-none">{selectedDestination}</div>
+                <div className="mt-1.5 truncate text-base font-bold leading-none text-white/45">
                   {selectedDestination && <WatchLocationName destination={selectedDestination} />}
                 </div>
               </div>
               {renderWatchFlightList(destinationFlights, { compact: true, keyPrefix: 'destination' })}
             </div>
           ) : step === 'detail' && selectedFlight ? (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <button
                 type="button"
                 onClick={() => onToggleDone(selectedFlight.id)}
-                className={`relative w-full rounded-xl p-2.5 text-left active:scale-[0.99] ${
+                className={`relative w-full rounded-xl p-3 text-left active:scale-[0.99] ${
                   selectedFlight.doneAt ? 'bg-emerald-500/10 ring-1 ring-emerald-300/40' : 'bg-white/[0.065]'
                 }`}
                 aria-label={selectedFlight.doneAt ? 'Riapri volo' : 'Chiudi volo'}
               >
-                <div className="grid grid-cols-[4.8rem_1fr] gap-2">
-                  <div className="flex min-h-[5.7rem] flex-col items-center justify-center rounded-lg bg-emerald-500 px-1 text-center text-black">
-                    <div className="text-[2.85rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
-                    <div className="mt-1 text-xs font-black leading-none">{selectedFlight.terminal}</div>
+                <div className="grid grid-cols-[5.5rem_1fr] gap-2.5">
+                  <div className="flex min-h-[7rem] flex-col items-center justify-center rounded-lg bg-emerald-500 px-1 text-center text-black">
+                    <div className="text-[3.4rem] font-black leading-none">{selectedFlight.position || 'X'}</div>
+                    <div className="mt-1.5 text-base font-black leading-none">{selectedFlight.terminal}</div>
                   </div>
                   <div className="min-w-0 self-center">
-                    <div className="truncate text-[2.2rem] font-black leading-none text-white">{selectedFlight.destination}</div>
-                    <div className="mt-1 truncate text-lg font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
-                    <div className="mt-2 text-[2.45rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
-                    <div className="mt-1 text-xs font-bold leading-none text-white/50">
+                    <div className="truncate text-[2.45rem] font-black leading-none text-white">{selectedFlight.destination}</div>
+                    <div className="mt-1.5 truncate text-xl font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
+                    <div className="mt-2.5 text-[2.75rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
+                    <div className="mt-1.5 text-base font-bold leading-none text-white/50">
                       {formatDuration(getMinutesToTarget(selectedFlight.std))}
                     </div>
                   </div>
                 </div>
-                <div className="mt-2 pr-9 text-xs font-bold leading-snug text-white/70">
+                <div className="mt-2.5 pr-10 text-base font-bold leading-snug text-white/70">
                   <div className="truncate text-white">
                     <WatchLocationName destination={selectedFlight.destination} />
                   </div>
-                  <div className="mt-1 flex items-center justify-between gap-1 text-white/45">
+                  <div className="mt-1.5 flex items-center justify-between gap-1.5 text-white/45">
                     <span>{getPositionType(selectedFlight.terminal, selectedFlight.position)}</span>
                     {selectedFlight.tot && <span className="truncate text-emerald-200">{selectedFlight.tot}</span>}
                   </div>
                 </div>
                 {selectedFlight.doneAt && (
-                  <div className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-black">
-                    <Check size={17} strokeWidth={3} />
+                  <div className="absolute bottom-2.5 right-2.5 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-black">
+                    <Check size={23} strokeWidth={3} />
                   </div>
                 )}
               </button>
 
               {(selectedFlight.richiesta || selectedFlight.fc) && (
-                <div className="rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs font-bold leading-snug text-white/70">
-                  {selectedFlight.richiesta && <div className="mt-1 line-clamp-3 break-words">{selectedFlight.richiesta}</div>}
-                  {selectedFlight.fc && <div className="mt-1 text-cyan-200">FC {selectedFlight.fc}</div>}
+                <div className="rounded-lg bg-white/[0.04] px-3 py-2.5 text-base font-bold leading-snug text-white/70">
+                  {selectedFlight.richiesta && <div className="mt-1.5 line-clamp-3 break-words">{selectedFlight.richiesta}</div>}
+                  {selectedFlight.fc && <div className="mt-1.5 text-cyan-200">FC {selectedFlight.fc}</div>}
                 </div>
               )}
             </div>
