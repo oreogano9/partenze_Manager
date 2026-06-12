@@ -29,7 +29,10 @@ type OCRMergeInfo = {
   changedFields: Set<MergeField>;
   previousFlight: Flight | null;
 };
+type MainView = 'board' | 'arrivals' | 'arrivalSheet' | 'settings';
+type ArrivalCounterField = 'carts' | 'akh' | 'ake' | 'transitBags';
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
+const DEFAULT_ARRIVAL_COMPANY_PREFIXES = ['W4', 'W6'];
 const SCAN_TERMINAL_OPTIONS: ScanTerminalMode[] = ['AUTO', 'T1', 'T3'];
 const T1_ONLY_AUTO_TERMINAL_POSITIONS = new Set([
   1, 2, 3, 4, 5, 7, 9, 11,
@@ -114,9 +117,9 @@ type WatchDetailReturn = 'timeline' | 'flights';
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
   const match =
-    compact.match(/^([A-Z]{1,3})(\d{1,4}[A-Z]?)$/) ||
-    compact.match(/^([A-Z]\d[A-Z]?)(\d{1,4}[A-Z]?)$/) ||
-    compact.match(/^(\d[A-Z]{1,2})(\d{1,4}[A-Z]?)$/);
+    compact.match(/^([A-Z]\d[A-Z]?)(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^(\d[A-Z]{1,2})(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^([A-Z]{1,3})(\d{1,5}[A-Z]?)$/);
   if (!match) {
     const salvageMatch = compact.match(/^([A-Z0-9]{2,3})([A-Z0-9]{1,5})$/);
     if (salvageMatch) {
@@ -124,7 +127,7 @@ const normalizeFlightCode = (value: string) => {
         .replace(/[OQ]/g, '0')
         .replace(/[IL]/g, '1')
         .replace(/S/g, '5');
-      if (/^\d{1,4}[A-Z]?$/.test(repairedSuffix)) {
+      if (/^\d{1,5}[A-Z]?$/.test(repairedSuffix)) {
         return `${salvageMatch[1]} ${repairedSuffix}`;
       }
     }
@@ -156,6 +159,11 @@ const inferTerminalFromNonOverlappingPosition = (position: string): TerminalType
 };
 
 const getFlightCodeKey = (flightNumber: string) => normalizeFlightCode(flightNumber).replace(/\s+/g, '');
+const getFlightCarrierPrefix = (flightNumber: string) => normalizeFlightCode(flightNumber).split(/\s+/)[0] || '';
+const isArrivalFlight = (flight: Pick<Flight, 'sourceType' | 'tags'>) =>
+  flight.sourceType === 'arrival_screen' || flight.tags.includes('Arrivo');
+const isCompanyArrivalFlight = (flight: Flight) =>
+  DEFAULT_ARRIVAL_COMPANY_PREFIXES.includes(getFlightCarrierPrefix(flight.flightNumber));
 
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
 const normalizeOcrPosition = (position: string) => position.trim().toUpperCase() || '/';
@@ -1090,6 +1098,7 @@ const WatchApp: React.FC<{
 
     return flights
       .filter((flight) => !Number.isNaN(new Date(flight.std).getTime()))
+      .filter((flight) => !isArrivalFlight(flight))
       .filter((flight) => getMinutesToTarget(flight.std) > -10)
       .filter((flight) => {
         const flightTime = new Date(flight.std);
@@ -1588,7 +1597,7 @@ export default function App() {
     ? { ...persistedState.appState, flights: localBoardBackup.flights }
     : persistedState.appState;
 
-  const [currentView, setCurrentView] = useState<'board' | 'settings'>('board');
+  const [currentView, setCurrentView] = useState<MainView>('board');
   const [state, setState] = useState<AppState>(initialAppState);
   const [glossaryQuery, setGlossaryQuery] = useState('');
   const [terminalFilter, setTerminalFilter] = useState<'ALL' | 'T1' | 'T3'>(persistedState.terminalFilter);
@@ -1663,6 +1672,7 @@ export default function App() {
     const query = state.searchQuery.toLowerCase();
     
     return state.flights
+      .filter((flight) => !isArrivalFlight(flight))
       .filter(f => {
         const isPast = new Date(f.std) <= now;
         const matchesPast = state.showPast || !isPast;
@@ -1689,6 +1699,56 @@ export default function App() {
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
   }, [state.flights, state.showPast, state.filterTypes, state.searchQuery, state.showFocusOnly, terminalFilter, shiftStart, shiftEnd, useShiftFilter, iataSearchIndex]);
+
+  const arrivalFlights = useMemo(() => (
+    state.flights
+      .filter(isArrivalFlight)
+      .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
+  ), [state.flights]);
+
+  const companyArrivalFlights = useMemo(() => (
+    arrivalFlights.filter(isCompanyArrivalFlight)
+  ), [arrivalFlights]);
+
+  const updateArrivalFlight = (id: string, patch: Partial<Flight>) => {
+    setState(prev => ({
+      ...prev,
+      flights: prev.flights.map((flight) => (
+        flight.id === id ? { ...flight, ...patch } : flight
+      )),
+    }));
+  };
+
+  const updateArrivalTimeField = (id: string, field: 'std' | 'secondEntryAt' | 'thirdEntryAt' | 'endAt', value: string) => {
+    setState(prev => ({
+      ...prev,
+      flights: prev.flights.map((flight) => {
+        if (flight.id !== id) {
+          return flight;
+        }
+
+        if (!value.trim()) {
+          return { ...flight, [field]: undefined };
+        }
+
+        return { ...flight, [field]: updateStdTime(field === 'std' ? flight.std : flight[field] || flight.std, value) };
+      }),
+    }));
+  };
+
+  const adjustArrivalCounter = (id: string, field: ArrivalCounterField, delta: number) => {
+    setState(prev => ({
+      ...prev,
+      flights: prev.flights.map((flight) => {
+        if (flight.id !== id) {
+          return flight;
+        }
+
+        const currentValue = Number(flight[field] ?? 0);
+        return { ...flight, [field]: Math.max(0, currentValue + delta) };
+      }),
+    }));
+  };
 
   const hasImportedFlights = useMemo(
     () => state.flights.some((flight) => flight.id.startsWith('ocr-')),
@@ -1892,6 +1952,9 @@ export default function App() {
       showPast: true,
     }));
     setTerminalFilter('ALL');
+    if (finalizedFlights.some(isArrivalFlight)) {
+      setCurrentView('arrivals');
+    }
     closeOcrReview();
   };
 
@@ -1950,7 +2013,7 @@ export default function App() {
                 position,
                 terminal: inferredTerminal ?? flight.terminal ?? scanTerminalFallback,
                 flightNumber: normalizeFlightCode(flight.flightNumber),
-                selected: new Date(flight.std).getTime() > Date.now() && !flight.crossedOut,
+                selected: (flight.sourceType === 'arrival_screen' || new Date(flight.std).getTime() > Date.now()) && !flight.crossedOut,
               };
             });
 
@@ -2434,7 +2497,13 @@ export default function App() {
               <Plane className="text-black" size={24} />
             </div>
             <h1 className={`font-black tracking-tighter uppercase italic ${currentView === 'settings' ? 'text-lg' : 'text-xl'}`}>
-              {currentView === 'settings' ? t.settings : t.appTitle}
+              {currentView === 'settings'
+                ? t.settings
+                : currentView === 'arrivals'
+                  ? 'Arrivi TL'
+                  : currentView === 'arrivalSheet'
+                    ? 'Foglio Arrivi'
+                    : t.appTitle}
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -2462,6 +2531,30 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {currentView !== 'settings' && (
+        <div className="border-b border-white/5 bg-[#0a0a0a] px-4 pb-3">
+          <div className="mx-auto flex max-w-4xl gap-2 overflow-x-auto">
+            {([
+              ['board', 'Partenze'],
+              ['arrivals', `Arrivi TL ${companyArrivalFlights.length ? `(${companyArrivalFlights.length})` : ''}`],
+              ['arrivalSheet', 'Foglio'],
+            ] as const).map(([view, label]) => (
+              <button
+                key={view}
+                onClick={() => setCurrentView(view)}
+                className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black transition-all ${
+                  currentView === view
+                    ? 'border-emerald-500 bg-emerald-500 text-black'
+                    : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {currentView === 'board' && (
         <>
@@ -2587,6 +2680,135 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+        ) : currentView === 'arrivals' ? (
+          <div className="space-y-4">
+            <div className="rounded-[24px] border border-white/10 bg-[#111111] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.25em] text-emerald-300">Team Leader</p>
+                  <p className="mt-1 text-sm text-white/50">
+                    Mostro i voli compagnia filtrati per prefissi {DEFAULT_ARRIVAL_COMPANY_PREFIXES.join(', ')}. Importo comunque tutti gli arrivi.
+                  </p>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-black text-white/70">
+                  {companyArrivalFlights.length}/{arrivalFlights.length} arrivi
+                </div>
+              </div>
+            </div>
+
+            {companyArrivalFlights.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+                <p className="text-lg font-black text-white">Nessun arrivo compagnia</p>
+                <p className="mt-2 text-sm text-white/45">Importa foto arrivi, oppure aspetta il filtro compagnia definitivo.</p>
+              </div>
+            ) : (
+              companyArrivalFlights.map((flight) => (
+                <div key={`arrival-${flight.id}`} className="rounded-[24px] border border-white/10 bg-[#111111] p-4 shadow-xl">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-2xl font-black text-white">{flight.flightNumber}</span>
+                        <span className="rounded-lg bg-yellow-300 px-2 py-1 text-sm font-black text-black">Nastro {flight.position || '-'}</span>
+                      </div>
+                      <p className="mt-1 truncate text-sm font-bold text-white/55">{flight.destination}</p>
+                    </div>
+                    <input
+                      value={formatHHmm(flight.std)}
+                      onChange={(event) => updateArrivalTimeField(flight.id, 'std', event.target.value)}
+                      className="w-20 rounded-xl border border-white/10 bg-black/30 px-2 py-2 text-center text-lg font-black text-emerald-200 outline-none"
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {([
+                      ['Seconda entrata', 'secondEntryAt'],
+                      ['Terza entrata', 'thirdEntryAt'],
+                      ['Fine', 'endAt'],
+                    ] as const).map(([label, field]) => (
+                      <label key={field} className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">{label}</span>
+                        <input
+                          value={flight[field] ? formatHHmm(flight[field] || '') : ''}
+                          onChange={(event) => updateArrivalTimeField(flight.id, field, event.target.value)}
+                          placeholder="HH:mm"
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-base font-black text-white outline-none"
+                        />
+                      </label>
+                    ))}
+                    <label className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Note</span>
+                      <input
+                        value={flight.teamLeaderNote || ''}
+                        onChange={(event) => updateArrivalFlight(flight.id, { teamLeaderNote: event.target.value })}
+                        placeholder="Note"
+                        className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-base font-bold text-white outline-none"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {([
+                      ['Carrelli', 'carts'],
+                      ['AKH', 'akh'],
+                      ['AKE', 'ake'],
+                    ] as const).map(([label, field]) => (
+                      <div key={field} className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">{label}</div>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <button onClick={() => adjustArrivalCounter(flight.id, field, -1)} className="h-9 w-9 rounded-xl bg-white/10 text-xl font-black text-white">-</button>
+                          <span className="text-xl font-black text-white">{flight[field] ?? 0}</span>
+                          <button onClick={() => adjustArrivalCounter(flight.id, field, 1)} className="h-9 w-9 rounded-xl bg-emerald-500 text-xl font-black text-black">+</button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+                      <button
+                        onClick={() => updateArrivalFlight(flight.id, { hasTransit: !flight.hasTransit, transitBags: flight.hasTransit ? 0 : flight.transitBags ?? 0 })}
+                        className={`w-full rounded-xl px-3 py-2 text-xs font-black ${flight.hasTransit ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/60'}`}
+                      >
+                        Transiti
+                      </button>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', -1)} className="h-9 w-9 rounded-xl bg-white/10 text-xl font-black text-white">-</button>
+                        <span className="text-xl font-black text-white">{flight.transitBags ?? 0}</span>
+                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', 1)} className="h-9 w-9 rounded-xl bg-emerald-500 text-xl font-black text-black">+</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : currentView === 'arrivalSheet' ? (
+          <div className="overflow-auto rounded-xl bg-white p-3 text-black">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-black">
+                  {['Volo', 'Provenienza', 'Nastro', 'Arrivo', '2a entrata', '3a entrata', 'Fine', 'Carrelli', 'AKH', 'AKE', 'Transiti', 'Note'].map((heading) => (
+                    <th key={heading} className="border border-black px-2 py-1 text-left font-black">{heading}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {companyArrivalFlights.map((flight) => (
+                  <tr key={`arrival-sheet-${flight.id}`}>
+                    <td className="border border-black px-2 py-1 font-bold">{flight.flightNumber}</td>
+                    <td className="border border-black px-2 py-1">{flight.destination}</td>
+                    <td className="border border-black px-2 py-1">{flight.position}</td>
+                    <td className="border border-black px-2 py-1">{formatHHmm(flight.std)}</td>
+                    <td className="border border-black px-2 py-1">{flight.secondEntryAt ? formatHHmm(flight.secondEntryAt) : ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.thirdEntryAt ? formatHHmm(flight.thirdEntryAt) : ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.endAt ? formatHHmm(flight.endAt) : ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.carts ?? ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.akh ?? ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.ake ?? ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.hasTransit ? flight.transitBags ?? 0 : ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.teamLeaderNote || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           <>

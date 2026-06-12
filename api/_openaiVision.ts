@@ -27,7 +27,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 const asBoolean = (value: unknown) => value === true;
 const normalizeSourceType = (value: unknown): OCRSourceType =>
-  value === 'bay_screen' ? 'bay_screen' : 'sheet';
+  value === 'bay_screen' || value === 'arrival_screen' ? value : 'sheet';
 const stripFlightCodeNoise = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 const repairFlightNumberSuffix = (value: string) =>
   value
@@ -36,12 +36,15 @@ const repairFlightNumberSuffix = (value: string) =>
     .replace(/S/g, '5');
 const normalizeFlightCodeFormat = (value: string) => {
   const compact = stripFlightCodeNoise(value.trim());
-  const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
+  const match =
+    compact.match(/^([A-Z]\d[A-Z]?)(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^(\d[A-Z]{1,2})(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^([A-Z]{1,3})(\d{1,5}[A-Z]?)$/);
   if (!match) {
     const salvageMatch = compact.match(/^([A-Z0-9]{2,3})([A-Z0-9]{1,5})$/);
     if (salvageMatch) {
       const repairedSuffix = repairFlightNumberSuffix(salvageMatch[2]);
-      if (/^\d{1,4}[A-Z]?$/.test(repairedSuffix)) {
+      if (/^\d{1,5}[A-Z]?$/.test(repairedSuffix)) {
         return `${salvageMatch[1]} ${repairedSuffix}`;
       }
     }
@@ -60,7 +63,7 @@ const getRawFlightCode = (raw: RawFlight) => {
   const carrier = stripFlightCodeNoise(asString(raw.carrier));
   const numeric = repairFlightNumberSuffix(stripFlightCodeNoise(asString(raw.flightNumberNumeric)));
 
-  if (!carrier || !numeric || !/^\d{1,4}[A-Z]?$/.test(numeric)) {
+  if (!carrier || !numeric || !/^\d{1,5}[A-Z]?$/.test(numeric)) {
     return '';
   }
 
@@ -121,10 +124,16 @@ const getRomeDateParts = () => {
   return { year, month, day };
 };
 
-const buildISODate = (hhmm: string) => {
+const buildISODate = (hhmm: string, preferFuture = false) => {
   const [hours, minutes] = hhmm.split(':').map(Number);
   const { year, month, day } = getRomeDateParts();
-  return `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  const date = new Date(`${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
+
+  if (preferFuture && date.getTime() < Date.now() - 6 * 60 * 60000) {
+    date.setDate(date.getDate() + 1);
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:00`;
 };
 
 const selectBayScreenDepartureTime = (raw: RawFlight) => {
@@ -162,8 +171,31 @@ const normalizeTerminal = (value: string, preferredTerminal?: TerminalType): Ter
 };
 
 const inferSourceType = (rawFlights: RawFlight[], declaredSourceType: OCRSourceType): OCRSourceType => {
-  if (declaredSourceType === 'bay_screen') {
-    return 'bay_screen';
+  if (declaredSourceType === 'bay_screen' || declaredSourceType === 'arrival_screen') {
+    return declaredSourceType;
+  }
+
+  const arrivalScreenLikeRows = rawFlights.filter((flight) => {
+    const sourceLine = asString(flight.sourceLine).toLowerCase();
+    const destination = asString(flight.destination);
+    return Boolean(
+      getRawFlightCode(flight) &&
+      normalizeTime(asString(flight.std)) &&
+      asString(flight.position) &&
+      destination &&
+      (
+        sourceLine.includes('from') ||
+        sourceLine.includes('provenienza') ||
+        sourceLine.includes('belt') ||
+        sourceLine.includes('nastro') ||
+        sourceLine.includes('act') ||
+        sourceLine.includes('eff')
+      ),
+    );
+  });
+
+  if (rawFlights.length > 0 && arrivalScreenLikeRows.length / rawFlights.length >= 0.6) {
+    return 'arrival_screen';
   }
 
   const bayScreenLikeRows = rawFlights.filter((flight) => {
@@ -222,10 +254,10 @@ const normalizeFlight = (
     flightNumberNumeric: flightNumberNumeric || undefined,
     flightNumber,
     destination,
-    std: buildISODate(hhmm),
+    std: buildISODate(hhmm, sourceType === 'arrival_screen'),
     terminal: normalizeTerminal(asString(raw.terminal).toUpperCase(), preferredTerminal),
     position: asString(raw.position).toUpperCase(),
-    tags: ['Smistato'],
+    tags: sourceType === 'arrival_screen' ? ['Arrivo'] : ['Smistato'],
     fc: asString(raw.fc).toUpperCase() || undefined,
     richiesta: asString(raw.richiesta) || undefined,
     tot: asString(raw.tot).toUpperCase() || undefined,
@@ -296,7 +328,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
         {
           role: 'system',
           content:
-            'You extract flight rows from either airport operation sheets or live bay-screen monitors. Return JSON only with shape {"sourceType":"sheet or bay_screen","text":"best effort raw transcription","flights":[{"carrier":"","flightNumberNumeric":"","flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","anomaly":"","bag":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. Detect whether the image is a paper sheet or a live bay-screen monitor and set sourceType accordingly. If the image is a bay screen, extract only flight code, destination if visible, bay/position, and departure time. On bay screens, std must be the actual departure time, usually the later repeated time in the row, not the earlier baggage-opening time. Ignore baggage opening time, luggage counters, and other status metrics. If the sheet has separate CARR and FLT.N columns, extract both and also return flightNumber combined with a space, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Treat the long central request column as the requested container mix/instructions and preserve it verbatim in richiesta. Do not move that full request text into fc. Use fc only for the dedicated FC column when it is actually filled or clearly visible as its own value. Preserve TOT, ANOMALIA, and BAG from their own columns when visible. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
+            'You extract flight rows from airport operation sheets, live departure bay-screen monitors, or live arrivals/arrivi baggage-belt monitors. Return JSON only with shape {"sourceType":"sheet or bay_screen or arrival_screen","text":"best effort raw transcription","flights":[{"carrier":"","flightNumberNumeric":"","flightNumber":"","destination":"","std":"HH:mm","terminal":"T1 or T3","position":"","sourceLine":"","confidence":0.0,"fc":"","richiesta":"","tot":"","anomaly":"","bag":"","crossedOut":false}]}. Do not invent flights that are not visible. Keep unknown fields as empty strings. Use HH:mm 24-hour time. Detect whether the image is a paper sheet, a live departure bay-screen monitor, or a live arrivals monitor and set sourceType accordingly. Arrival screens have headers like Airline/Flight/From/Belt/Act. or Vettore/Volo/Provenienza/Nastro/Eff.; for these set sourceType to arrival_screen, put From/Provenienza in destination, put Belt/Nastro in position, and put Act./Eff. in std. If the image is a departure bay screen, extract only flight code, destination if visible, bay/position, and departure time. On departure bay screens, std must be the actual departure time, usually the later repeated time in the row, not the earlier baggage-opening time. Ignore baggage opening time, luggage counters, and other status metrics. If the sheet has separate CARR and FLT.N columns, extract both and also return flightNumber combined with a space, for example "FR 244", "LH 231", "VY 6101". Do not return a bare numeric flight number if the prefix is present anywhere on the same row. Treat the long central request column as the requested container mix/instructions and preserve it verbatim in richiesta. Do not move that full request text into fc. Use fc only for the dedicated FC column when it is actually filled or clearly visible as its own value. Preserve TOT, ANOMALIA, and BAG from their own columns when visible. Set crossedOut to true when an item or row is visibly crossed out, struck through, or clearly marked as cancelled/void by pen or marker.',
         },
         {
           role: 'user',
@@ -304,7 +336,7 @@ export const extractFlightsWithOpenAI = async (imageUrl: string, preferredTermin
             {
               type: 'text',
               text:
-                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Normalize flight numbers so forms like "FC2355", "FC 2355", and "FC-2355" all resolve to the same flight code value "FC 2355". Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". If this is a live bay screen, use the screen header bay as position for all rows when appropriate, keep only flight code, destination if visible, bay/position, and the departure time. If multiple times appear on a bay-screen row, std must be the one furthest in the future, usually the repeated later time, not the earlier baggage-opening time. Many paper sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. ${terminalInstruction}`,
+                `Read this image and extract visible flight rows. Prefer accurate rows over complete coverage. If a row is ambiguous, leave fields blank rather than guessing. Normalize flight numbers so forms like "FC2355", "FC 2355", and "FC-2355" all resolve to the same flight code value "FC 2355". Keep the full flight code with airline prefix when visible, such as "FR 244" rather than only "244". If this is an arrivals/arrivi monitor with headers like Airline/Vettore, Flight/Volo, From/Provenienza, Belt/Nastro, Act./Eff., set sourceType arrival_screen, destination is the origin city/from field, position is the belt/nastro value such as "5/6", and std is the actual/effective arrival time. If this is a live departure bay screen, use the screen header bay as position for all rows when appropriate, keep only flight code, destination if visible, bay/position, and the departure time. If multiple times appear on a departure bay-screen row, std must be the one furthest in the future, usually the repeated later time, not the earlier baggage-opening time. Many paper sheets use headers like CARR, FLT.N, DEST, STD, BAIA, FC, a long request/instructions column, TOT, ANOMALIA, and BAG. BAIA maps to position. The long request/instructions column should be preserved exactly in richiesta, including tokens like BL, BT, BS, FC, AKH, route notes in parentheses, and free-text notes. TOT should preserve values like "7AKH". Mark crossedOut as true for rows that appear crossed out or cancelled. ${terminalInstruction}`,
             },
             {
               type: 'image_url',

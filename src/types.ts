@@ -2,7 +2,7 @@
 export type TerminalType = 'T1' | 'T3';
 
 export type PositionType = 'Scivolo' | 'Carosello' | 'Baia';
-export type OCRSourceType = 'sheet' | 'bay_screen';
+export type OCRSourceType = 'sheet' | 'bay_screen' | 'arrival_screen';
 
 export interface Flight {
   id: string;
@@ -23,6 +23,16 @@ export interface Flight {
   tot?: string;
   anomaly?: string;
   bag?: string;
+  sourceType?: OCRSourceType;
+  secondEntryAt?: string;
+  thirdEntryAt?: string;
+  endAt?: string;
+  carts?: number;
+  akh?: number;
+  ake?: number;
+  hasTransit?: boolean;
+  transitBags?: number;
+  teamLeaderNote?: string;
 }
 
 export interface OCRFlightCandidate extends Flight {
