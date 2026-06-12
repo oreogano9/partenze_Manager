@@ -2,16 +2,19 @@ import type { Flight } from '../src/types';
 import { getBlobTokenInfo, missingBlobTokenMessage } from './_blobConfig.js';
 import { readSharedBoardText, writeSharedBoardText } from './_sharedBoardStore.js';
 
-type AdrDirection = 'departure' | 'arrival';
+type LiveDirection = 'departure' | 'arrival';
+type LiveSource = 'AeroDataBox' | 'FlightView';
 
-type AdrFlight = {
+type LiveFlight = {
   flightCodes: string[];
-  destination: string;
-  scheduledTime: string;
-  effectiveTime: string;
-  terminal: string;
-  status: string;
-  direction: AdrDirection;
+  direction: LiveDirection;
+  scheduledAt?: string;
+  revisedAt?: string;
+  scheduledTime?: string;
+  revisedTime?: string;
+  status?: string;
+  place?: string;
+  source: LiveSource;
 };
 
 type SharedBoardPayload = {
@@ -19,25 +22,15 @@ type SharedBoardPayload = {
   filters?: unknown;
 };
 
-const ADR_BASE_URL = 'https://www.adr.it/pax-fco-voli-in-tempo-reale';
+type ProviderResult = {
+  source: LiveSource;
+  flights: LiveFlight[];
+  fallbackUsed: boolean;
+};
+
 const ROME_TIME_ZONE = 'Europe/Rome';
-
-const decodeHtml = (value: string) => value
-  .replace(/&nbsp;/g, ' ')
-  .replace(/&amp;/g, '&')
-  .replace(/&quot;/g, '"')
-  .replace(/&#39;/g, "'")
-  .replace(/&agrave;/g, 'à')
-  .replace(/&egrave;/g, 'è')
-  .replace(/&eacute;/g, 'é')
-  .replace(/&igrave;/g, 'ì')
-  .replace(/&ograve;/g, 'ò')
-  .replace(/&ugrave;/g, 'ù')
-  .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-  .replace(/&#x([a-fA-F0-9]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
-
-const stripTags = (value: string) =>
-  decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+const AERODATABOX_BASE_URL = 'https://portal.aerodatabox.com/backend/airport/LIRF';
+const FLIGHTVIEW_BASE_URL = 'https://app-api.flightview.com/api/airport/FCO';
 
 const readBody = (body: unknown) => {
   if (!body) {
@@ -53,8 +46,38 @@ const readBody = (body: unknown) => {
 
 const normalizeFlightCode = (value: string) => {
   const compact = value.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
-  const match = compact.match(/^([A-Z0-9]{2,3})(\d{1,4}[A-Z]?)$/);
-  return match ? `${match[1]}${match[2]}` : compact;
+  const match =
+    compact.match(/^([A-Z]\d[A-Z]?)(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^(\d[A-Z]{1,2})(\d{1,5}[A-Z]?)$/) ||
+    compact.match(/^([A-Z]{1,3})(\d{1,5}[A-Z]?)$/);
+
+  if (!match) {
+    return compact;
+  }
+
+  return `${match[1]}${match[2]}`;
+};
+
+const getFlightCodes = (value: unknown): string[] => {
+  if (typeof value === 'string') {
+    return [normalizeFlightCode(value)].filter(Boolean);
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(getFlightCodes);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  return [
+    ...getFlightCodes(record.number),
+    ...getFlightCodes(record.flightNumber),
+    ...getFlightCodes(record.serviceNumber),
+    ...getFlightCodes(record.codeshareServiceNumber),
+  ];
 };
 
 const formatRomeDate = (date: Date) => {
@@ -69,121 +92,249 @@ const formatRomeDate = (date: Date) => {
   return `${byType.year}-${byType.month}-${byType.day}`;
 };
 
-const getRomeHour = (date: Date) => {
-  const hour = new Intl.DateTimeFormat('en-GB', {
-    timeZone: ROME_TIME_ZONE,
-    hour: '2-digit',
-    hour12: false,
-  }).format(date);
-
-  return Number(hour);
-};
-
-const toRomeLocalDateTime = (dateKey: string, hhmm: string) => `${dateKey}T${hhmm}:00`;
-
 const getFlightDateKey = (flight: Flight) => {
   const date = new Date(flight.std);
   return Number.isNaN(date.getTime()) ? flight.std.slice(0, 10) : formatRomeDate(date);
 };
 
-const updateFlightStdTime = (flight: Flight, hhmm: string) => {
+const toRomeLocalDateTime = (dateKey: string, hhmm: string) => `${dateKey}T${hhmm}:00`;
+
+const extractHhmm = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const match = value.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+  return match ? `${match[1]}:${match[2]}` : undefined;
+};
+
+const getTimeObjectValue = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    (typeof record.local === 'string' && record.local) ||
+    (typeof record.utc === 'string' && record.utc) ||
+    (typeof record.scheduled === 'string' && record.scheduled) ||
+    (typeof record.estimated === 'string' && record.estimated) ||
+    (typeof record.actual === 'string' && record.actual) ||
+    undefined
+  );
+};
+
+const getIsoLikeTime = (value: unknown): string | undefined => {
+  const raw = getTimeObjectValue(value);
+  if (!raw) {
+    return undefined;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    return raw;
+  }
+
+  return undefined;
+};
+
+const buildFlightTime = (flight: Flight, value?: string) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime()) && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    return value;
+  }
+
+  const hhmm = extractHhmm(value);
   const dateKey = getFlightDateKey(flight);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !/^\d{2}:\d{2}$/.test(hhmm)) {
-    return flight.std;
+  if (!hhmm || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return undefined;
   }
 
   return toRomeLocalDateTime(dateKey, hhmm);
 };
 
-const getRelevantIntervalsByDate = (flights: Flight[]) => {
-  const intervalsByDate = new Map<string, Set<string>>();
+const minutesBetween = (from?: string, to?: string) => {
+  if (!from || !to) {
+    return undefined;
+  }
 
-  flights.forEach((flight) => {
-    const date = new Date(flight.std);
-    if (Number.isNaN(date.getTime())) {
-      return;
-    }
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return undefined;
+  }
 
-    const dateKey = formatRomeDate(date);
-    const hour = getRomeHour(date);
-    const baseStart = Math.max(0, Math.min(22, Math.floor(hour / 2) * 2));
-    const starts = [baseStart - 2, baseStart, baseStart + 2].filter((start) => start >= 0 && start <= 22);
-
-    if (!intervalsByDate.has(dateKey)) {
-      intervalsByDate.set(dateKey, new Set());
-    }
-
-    starts.forEach((start) => {
-      const end = start + 2;
-      const label = `${String(start).padStart(2, '0')}:00-${String(end).padStart(2, '0')}:00`;
-      intervalsByDate.get(dateKey)?.add(label);
-    });
-  });
-
-  return intervalsByDate;
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 60000);
 };
 
-const buildAdrUrl = (direction: AdrDirection, dateKey: string, intervals: string[]) => {
-  const params = new URLSearchParams();
-  params.set('p_p_id', '3_WAR_realtimeflightsportlet');
-  params.set('p_p_lifecycle', '0');
-  params.set('p_p_state', 'normal');
-  params.set('p_p_mode', 'view');
-  params.set('_3_WAR_realtimeflightsportlet_tab', direction);
-  params.set('_3_WAR_realtimeflightsportlet_codScaOpe', 'FCO');
-  params.set('_3_WAR_realtimeflightsportlet_rouIata', '');
-  params.set('_3_WAR_realtimeflightsportlet_isParent', 'false');
-  params.set('_3_WAR_realtimeflightsportlet_airportId', '0');
-  params.set('_3_WAR_realtimeflightsportlet_searchType', 'standard');
-  params.set('_3_WAR_realtimeflightsportlet_airport', '');
-  params.set('_3_WAR_realtimeflightsportlet_date', dateKey);
-  intervals.forEach((interval) => params.append('_3_WAR_realtimeflightsportlet_orario', interval));
-  params.set('_3_WAR_realtimeflightsportlet_codVet', '');
-  params.set('_3_WAR_realtimeflightsportlet_carrier', '');
-  params.set('_3_WAR_realtimeflightsportlet_rtFlightsSearchContainerPrimaryKeys', '');
+const sameFlightValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-  return `${ADR_BASE_URL}?${params.toString()}`;
+const isArrivalFlight = (flight: Flight) =>
+  flight.sourceType === 'arrival_screen' || flight.tags.includes('Arrivo');
+
+const collectRows = (value: unknown, predicate: (record: Record<string, unknown>) => boolean, rows: Record<string, unknown>[] = []) => {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectRows(item, predicate, rows));
+    return rows;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return rows;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (predicate(record)) {
+    rows.push(record);
+  }
+
+  Object.values(record).forEach((item) => collectRows(item, predicate, rows));
+  return rows;
 };
 
-const parseAdrRows = (html: string, direction: AdrDirection): AdrFlight[] => {
-  const rows = html.match(/<tr\b[^>]*data-qa-id="row"[\s\S]*?<\/tr>/g) ?? [];
+const pickString = (...values: unknown[]) =>
+  values.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
+
+const getAirportField = (value: unknown, field: 'name' | 'iata') => {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const airport = (value as Record<string, unknown>).airport;
+  if (!airport || typeof airport !== 'object') {
+    return undefined;
+  }
+
+  const airportValue = (airport as Record<string, unknown>)[field];
+  return typeof airportValue === 'string' ? airportValue : undefined;
+};
+
+const parseAeroDataBoxFlights = (payload: unknown, direction: LiveDirection): LiveFlight[] => {
+  const rows = collectRows(payload, (record) => (
+    Boolean(record.flight && typeof record.flight === 'object') ||
+    Boolean(record.number || record.flightNumber)
+  ));
 
   return rows.map((row) => {
-    const scheduledTime = stripTags(row.match(/date-estimated__time[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
-    const effectiveTime = stripTags(row.match(/date-actual__time[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
-    const destinationText = stripTags(row.match(/card-fg__dest[\s\S]*?<h5[^>]*>([\s\S]*?)<\/h5>/)?.[1] ?? '');
-    const destination = destinationText.match(/\(([A-Z]{3})\)/)?.[1] ?? '';
-    const terminal = stripTags(row.match(/terminal-icon[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
-    const status = stripTags(row.match(/card-fg__arrivals[\s\S]*?<h5[^>]*>([\s\S]*?)<\/h5>/)?.[1] ?? '');
-    const flightCodes = Array.from(row.matchAll(/<strong>\s*([A-Z0-9]{2,3}\s*\d{1,4}[A-Z]?)\s*<\/strong>/g))
-      .map((match) => stripTags(match[1]))
-      .filter(Boolean);
+    const flightObject = row.flight && typeof row.flight === 'object' ? row.flight as Record<string, unknown> : row;
+    const directionObject = direction === 'departure' ? row.departure : row.arrival;
+    const timeRecord = directionObject && typeof directionObject === 'object'
+      ? directionObject as Record<string, unknown>
+      : row;
+    const scheduledValue = timeRecord.scheduledTime ?? timeRecord.scheduled ?? row.scheduledTime;
+    const revisedValue = timeRecord.revisedTime ?? timeRecord.actualTime ?? timeRecord.estimatedTime ?? timeRecord.revised ?? row.revisedTime;
+    const scheduledRaw = getTimeObjectValue(scheduledValue);
+    const revisedRaw = getTimeObjectValue(revisedValue);
 
     return {
-      flightCodes,
-      destination,
-      scheduledTime,
-      effectiveTime,
-      terminal,
-      status,
+      flightCodes: Array.from(new Set(getFlightCodes(flightObject))),
       direction,
+      scheduledAt: getIsoLikeTime(scheduledValue),
+      revisedAt: getIsoLikeTime(revisedValue),
+      scheduledTime: extractHhmm(scheduledRaw),
+      revisedTime: extractHhmm(revisedRaw),
+      status: pickString(row.status, row.displayStatus),
+      place: pickString(
+        getAirportField(direction === 'departure' ? row.arrival : row.departure, 'name'),
+        getAirportField(direction === 'departure' ? row.arrival : row.departure, 'iata'),
+      ),
+      source: 'AeroDataBox' as const,
     };
-  }).filter((flight) => flight.flightCodes.length > 0 && Boolean(flight.scheduledTime || flight.effectiveTime));
+  }).filter((flight) => flight.flightCodes.length > 0 && Boolean(flight.scheduledAt || flight.revisedAt || flight.scheduledTime || flight.revisedTime));
 };
 
-const fetchAdrFlights = async (direction: AdrDirection, dateKey: string, intervals: string[]) => {
-  const response = await fetch(buildAdrUrl(direction, dateKey, intervals), {
+const parseFlightViewFlights = (payload: unknown, direction: LiveDirection): LiveFlight[] => {
+  const rows = collectRows(payload, (record) => Boolean(record.flightNumber || record.number || record.flight));
+
+  return rows.map((row) => {
+    const scheduledRaw = pickString(row.scheduledTime, row.scheduled, row.departureTime, row.arrivalTime);
+    const revisedRaw = pickString(row.updatedTime, row.estimatedTime, row.actualTime, row.revisedTime);
+
+    return {
+      flightCodes: Array.from(new Set(getFlightCodes(row.flight ?? row.flightNumber ?? row.number))),
+      direction,
+      scheduledAt: getIsoLikeTime(scheduledRaw),
+      revisedAt: getIsoLikeTime(revisedRaw),
+      scheduledTime: extractHhmm(scheduledRaw),
+      revisedTime: extractHhmm(revisedRaw),
+      status: pickString(row.displayStatus, row.status),
+      place: pickString(row.airportFrom, row.airportTo, row.airport),
+      source: 'FlightView' as const,
+    };
+  }).filter((flight) => flight.flightCodes.length > 0 && Boolean(flight.scheduledAt || flight.revisedAt || flight.scheduledTime || flight.revisedTime));
+};
+
+const fetchJson = async (url: string, source: LiveSource) => {
+  const response = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 PartenzeManager/1.0',
-      Accept: 'text/html,application/xhtml+xml',
+      Accept: 'application/json,text/plain,*/*',
+      'Accept-Language': 'en-GB,en;q=0.9',
+      Referer: source === 'AeroDataBox' ? 'https://portal.aerodatabox.com/' : 'https://www.flightview.com/',
     },
   });
 
+  const text = await response.text();
   if (!response.ok) {
-    throw new Error(`ADR ${direction} request failed: ${response.status}`);
+    const message = text.trim().slice(0, 160) || response.statusText;
+    throw new Error(`${source} ${response.status}: ${message}`);
   }
 
-  return parseAdrRows(await response.text(), direction);
+  return text ? JSON.parse(text) : null;
+};
+
+const fetchAeroDataBoxFlights = async (directions: LiveDirection[]) => {
+  const flights: LiveFlight[] = [];
+
+  for (const direction of directions) {
+    const payload = await fetchJson(`${AERODATABOX_BASE_URL}/${direction === 'departure' ? 'departures' : 'arrivals'}`, 'AeroDataBox');
+    flights.push(...parseAeroDataBoxFlights(payload, direction));
+  }
+
+  return flights;
+};
+
+const fetchFlightViewFlights = async (directions: LiveDirection[]) => {
+  const flights: LiveFlight[] = [];
+
+  for (const direction of directions) {
+    const payload = await fetchJson(`${FLIGHTVIEW_BASE_URL}/${direction === 'departure' ? 'departures' : 'arrivals'}`, 'FlightView');
+    flights.push(...parseFlightViewFlights(payload, direction));
+  }
+
+  return flights;
+};
+
+const fetchLiveFlights = async (directions: LiveDirection[]): Promise<ProviderResult> => {
+  const providerErrors: string[] = [];
+
+  try {
+    return {
+      source: 'AeroDataBox',
+      flights: await fetchAeroDataBoxFlights(directions),
+      fallbackUsed: false,
+    };
+  } catch (error) {
+    providerErrors.push(error instanceof Error ? error.message : 'AeroDataBox failed');
+  }
+
+  try {
+    return {
+      source: 'FlightView',
+      flights: await fetchFlightViewFlights(directions),
+      fallbackUsed: true,
+    };
+  } catch (error) {
+    providerErrors.push(error instanceof Error ? error.message : 'FlightView failed');
+  }
+
+  throw new Error(`Live sync blocked or unavailable. ${providerErrors.join(' | ')}`);
 };
 
 const readSharedBoard = async (): Promise<SharedBoardPayload> => {
@@ -209,7 +360,53 @@ const writeSharedBoard = async (flights: Flight[], filters: unknown) => {
     return;
   }
 
-  await writeSharedBoardText(JSON.stringify({ flights, filters }), blobToken);
+  await writeSharedBoardText(JSON.stringify({ flights, filters, savedAt: new Date().toISOString() }), blobToken);
+};
+
+const getNeededDirections = (flights: Flight[]) => {
+  const directions = new Set<LiveDirection>();
+  flights.forEach((flight) => directions.add(isArrivalFlight(flight) ? 'arrival' : 'departure'));
+  return Array.from(directions);
+};
+
+const makeLiveIndex = (liveFlights: LiveFlight[]) => {
+  const index = new Map<string, LiveFlight[]>();
+  liveFlights.forEach((flight) => {
+    flight.flightCodes.forEach((code) => {
+      const key = normalizeFlightCode(code);
+      index.set(key, [...(index.get(key) ?? []), flight]);
+    });
+  });
+  return index;
+};
+
+const applyLiveFlight = (flight: Flight, liveFlight: LiveFlight, checkedAt: string) => {
+  const scheduledAt = buildFlightTime(flight, liveFlight.scheduledAt || liveFlight.scheduledTime);
+  const revisedAt = buildFlightTime(flight, liveFlight.revisedAt || liveFlight.revisedTime);
+  const nextStd = revisedAt || scheduledAt || flight.std;
+  const delayMinutes = minutesBetween(scheduledAt, revisedAt);
+
+  const nextFlight: Flight = {
+    ...flight,
+    std: nextStd,
+    liveScheduledAt: scheduledAt,
+    liveRevisedAt: revisedAt,
+    liveDelayMinutes: typeof delayMinutes === 'number' ? delayMinutes : undefined,
+    liveStatus: liveFlight.status,
+    liveSource: liveFlight.source,
+    liveCheckedAt: checkedAt,
+  };
+
+  const changed = (
+    nextFlight.std !== flight.std ||
+    !sameFlightValue(nextFlight.liveScheduledAt, flight.liveScheduledAt) ||
+    !sameFlightValue(nextFlight.liveRevisedAt, flight.liveRevisedAt) ||
+    !sameFlightValue(nextFlight.liveDelayMinutes, flight.liveDelayMinutes) ||
+    !sameFlightValue(nextFlight.liveStatus, flight.liveStatus) ||
+    !sameFlightValue(nextFlight.liveSource, flight.liveSource)
+  );
+
+  return { flight: nextFlight, changed };
 };
 
 export default async function handler(req: any, res: any) {
@@ -234,44 +431,27 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const intervalsByDate = getRelevantIntervalsByDate(flights);
-    const adrFlights: AdrFlight[] = [];
-
-    for (const [dateKey, intervals] of intervalsByDate.entries()) {
-      const dateIntervals = Array.from(intervals);
-      adrFlights.push(...await fetchAdrFlights('departure', dateKey, dateIntervals));
-    }
-
-    const adrByFlightCode = new Map<string, AdrFlight[]>();
-    adrFlights.forEach((adrFlight) => {
-      adrFlight.flightCodes.forEach((flightCode) => {
-        const key = normalizeFlightCode(flightCode);
-        adrByFlightCode.set(key, [...(adrByFlightCode.get(key) ?? []), adrFlight]);
-      });
-    });
-
+    const directions = getNeededDirections(flights);
+    const providerResult = await fetchLiveFlights(directions);
+    const liveByFlightCode = makeLiveIndex(providerResult.flights);
+    const checkedAt = new Date().toISOString();
     let updatedCount = 0;
+
     const updatedFlights = flights.map((flight) => {
+      const direction = isArrivalFlight(flight) ? 'arrival' : 'departure';
       const key = normalizeFlightCode(flight.flightNumber);
-      const matches = adrByFlightCode.get(key) ?? [];
-      const destination = flight.destination.trim().toUpperCase();
-      const bestMatch = matches.find((match) => match.destination === destination) ?? matches[0];
+      const matches = (liveByFlightCode.get(key) ?? []).filter((match) => match.direction === direction);
+      const bestMatch = matches[0];
 
       if (!bestMatch) {
         return flight;
       }
 
-      const adrTime = bestMatch.effectiveTime || bestMatch.scheduledTime;
-      const nextStd = updateFlightStdTime(flight, adrTime);
-      if (nextStd === flight.std) {
-        return flight;
+      const result = applyLiveFlight(flight, bestMatch, checkedAt);
+      if (result.changed) {
+        updatedCount += 1;
       }
-
-      updatedCount += 1;
-      return {
-        ...flight,
-        std: nextStd,
-      };
+      return result.flight;
     });
 
     if (updatedCount > 0) {
@@ -281,10 +461,12 @@ export default async function handler(req: any, res: any) {
     res.status(200).json({
       flights: updatedFlights,
       updatedCount,
-      checkedCount: adrFlights.length,
+      checkedCount: providerResult.flights.length,
+      provider: providerResult.source,
+      fallbackUsed: providerResult.fallbackUsed,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'ADR sync failed';
+    const message = error instanceof Error ? error.message : 'Live sync failed';
     res.status(500).json({ error: message });
   }
 }

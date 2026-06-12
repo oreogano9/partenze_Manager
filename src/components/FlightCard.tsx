@@ -101,6 +101,25 @@ const getBadgeClasses = (value: string) => {
   return 'border-amber-400/15 bg-amber-500/10 text-amber-200';
 };
 
+const hasLiveDelay = (flight: Pick<Flight, 'liveDelayMinutes' | 'liveStatus'>) =>
+  Boolean(
+    typeof flight.liveDelayMinutes === 'number' && flight.liveDelayMinutes !== 0 ||
+    flight.liveStatus && /delay|cancel|divert/i.test(flight.liveStatus)
+  );
+
+const getLiveDelayLabel = (flight: Pick<Flight, 'liveDelayMinutes' | 'liveStatus' | 'liveRevisedAt' | 'std'>) => {
+  const status = flight.liveStatus?.trim();
+  const revisedTime = flight.liveRevisedAt ? formatHHmm(flight.liveRevisedAt) : formatHHmm(flight.std);
+
+  if (typeof flight.liveDelayMinutes === 'number' && flight.liveDelayMinutes !== 0) {
+    const prefix = flight.liveDelayMinutes > 0 ? 'DELAY' : 'EARLY';
+    const sign = flight.liveDelayMinutes > 0 ? '+' : '';
+    return `${prefix} ${sign}${flight.liveDelayMinutes}m -> ${revisedTime}`;
+  }
+
+  return status || '';
+};
+
 const getBadgeLabel = (value: string, language: 'it' | 'en') => {
   const token = value.trim().toUpperCase();
 
@@ -466,6 +485,7 @@ export const FlightCard: React.FC<FlightCardProps> = ({
   const isFocused = minutesToSTD >= 15 && minutesToSTD <= 90;
   const urgencyColor = propUrgencyColor || getUrgencyColor(minutesToTarget);
   const [destinationName, setDestinationName] = useState(() => getCommonIataCityName(flight.destination, language));
+  const liveDelayLabel = hasLiveDelay(flight) ? getLiveDelayLabel(flight) : '';
   
   let statusLabel = `${minutesToTarget}m`;
   let labelClass = "text-white/40";
@@ -563,6 +583,11 @@ export const FlightCard: React.FC<FlightCardProps> = ({
                 <span>STD: {formatHHmm(flight.std)}</span>
               </div>
             </div>
+            {liveDelayLabel && (
+              <div className="mt-1 inline-flex max-w-full rounded-md bg-amber-400 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-black">
+                {liveDelayLabel}
+              </div>
+            )}
             {destinationName && (
               <div className="mt-1 text-[8px] leading-tight text-white/30 uppercase tracking-[0.14em] truncate">
                 {destinationName}

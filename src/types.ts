@@ -33,6 +33,12 @@ export interface Flight {
   hasTransit?: boolean;
   transitBags?: number;
   teamLeaderNote?: string;
+  liveScheduledAt?: string;
+  liveRevisedAt?: string;
+  liveDelayMinutes?: number;
+  liveStatus?: string;
+  liveSource?: string;
+  liveCheckedAt?: string;
 }
 
 export interface OCRFlightCandidate extends Flight {

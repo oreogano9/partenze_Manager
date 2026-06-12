@@ -74,12 +74,17 @@ type AdrSyncResponse = {
   flights?: Flight[];
   updatedCount?: number;
   checkedCount?: number;
+  provider?: string;
+  fallbackUsed?: boolean;
   error?: string;
 };
 
 type AdrSyncStatus = {
   state: 'success' | 'failure';
   at: number;
+  provider?: string;
+  fallbackUsed?: boolean;
+  message?: string;
 };
 
 type CalendarExportKind = 'all' | PositionType;
@@ -164,6 +169,23 @@ const isArrivalFlight = (flight: Pick<Flight, 'sourceType' | 'tags'>) =>
   flight.sourceType === 'arrival_screen' || flight.tags.includes('Arrivo');
 const isCompanyArrivalFlight = (flight: Flight) =>
   DEFAULT_ARRIVAL_COMPANY_PREFIXES.includes(getFlightCarrierPrefix(flight.flightNumber));
+const hasLiveDelay = (flight: Pick<Flight, 'liveDelayMinutes' | 'liveStatus'>) =>
+  Boolean(
+    typeof flight.liveDelayMinutes === 'number' && flight.liveDelayMinutes !== 0 ||
+    flight.liveStatus && /delay|cancel|divert/i.test(flight.liveStatus)
+  );
+const getLiveDelayLabel = (flight: Pick<Flight, 'liveDelayMinutes' | 'liveStatus' | 'liveRevisedAt' | 'std'>) => {
+  const status = flight.liveStatus?.trim();
+  const revisedTime = flight.liveRevisedAt ? formatHHmm(flight.liveRevisedAt) : formatHHmm(flight.std);
+
+  if (typeof flight.liveDelayMinutes === 'number' && flight.liveDelayMinutes !== 0) {
+    const prefix = flight.liveDelayMinutes > 0 ? 'RIT' : 'ANT';
+    const sign = flight.liveDelayMinutes > 0 ? '+' : '';
+    return `${prefix} ${sign}${flight.liveDelayMinutes}m · ${revisedTime}`;
+  }
+
+  return status || '';
+};
 
 const isValidOcrStd = (std: string) => !Number.isNaN(new Date(std).getTime());
 const normalizeOcrPosition = (position: string) => position.trim().toUpperCase() || '/';
@@ -244,6 +266,12 @@ const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => 
   tot: pickPreferredValue(base.tot, incoming.tot) || undefined,
   anomaly: pickPreferredValue(base.anomaly, incoming.anomaly) || undefined,
   bag: pickPreferredValue(base.bag, incoming.bag) || undefined,
+  liveScheduledAt: base.liveScheduledAt || incoming.liveScheduledAt,
+  liveRevisedAt: base.liveRevisedAt || incoming.liveRevisedAt,
+  liveDelayMinutes: base.liveDelayMinutes ?? incoming.liveDelayMinutes,
+  liveStatus: base.liveStatus || incoming.liveStatus,
+  liveSource: base.liveSource || incoming.liveSource,
+  liveCheckedAt: base.liveCheckedAt || incoming.liveCheckedAt,
 });
 
 const findMatchingFlightIndex = <T extends Pick<Flight, 'flightNumber' | 'destination' | 'std' | 'terminal'> & { sourceType?: OCRSourceType }>(
@@ -405,7 +433,7 @@ const IMPORTED_FLIGHT_TTL_MS = 16 * 60 * 60 * 1000;
 const SHARED_FLIGHTS_ENDPOINT = '/api/flights';
 const ADR_SYNC_ENDPOINT = '/api/adr-sync';
 const ADR_SYNC_INTERVAL_MS = 15 * 60 * 1000;
-const ADR_LIVE_SYNC_ENABLED = false;
+const ADR_LIVE_SYNC_ENABLED = true;
 const WATCH_SHARED_REFRESH_MS = 20 * 1000;
 const STATUS_TICK_MS = 60 * 1000;
 const DEFAULT_APP_STATE: AppState = {
@@ -968,6 +996,7 @@ const WatchFlightCard: React.FC<{
   const targetLabel = formatDuration(minutesToTarget);
   const positionType = getPositionType(flight.terminal, flight.position);
   const isDimmed = Boolean(flight.doneAt) || minutesToTarget <= 0;
+  const liveDelayLabel = hasLiveDelay(flight) ? getLiveDelayLabel(flight) : '';
   const tapTimeoutRef = useRef<number | null>(null);
 
   const handleClick = () => {
@@ -1020,6 +1049,11 @@ const WatchFlightCard: React.FC<{
           <span className="truncate text-[1.5rem] font-black leading-none text-white">{flight.destination}</span>
           <span className="shrink-0 text-xl font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
         </div>
+        {liveDelayLabel && (
+          <div className="mt-1 inline-flex max-w-full rounded-md bg-amber-400 px-1.5 py-0.5 text-[12px] font-black leading-none text-black">
+            {liveDelayLabel}
+          </div>
+        )}
         <div className="mt-2 flex min-w-0 items-center justify-between gap-1.5 text-sm font-bold leading-none text-white/55">
           <span className="truncate">{flight.flightNumber}</span>
           <span className="flex shrink-0 items-center gap-1 text-white/65">
@@ -1548,6 +1582,11 @@ const WatchApp: React.FC<{
                     <div className="truncate text-[2.45rem] font-black leading-none text-white">{selectedFlight.destination}</div>
                     <div className="mt-1.5 truncate text-xl font-black leading-none text-white/70">{selectedFlight.flightNumber}</div>
                     <div className="mt-2.5 text-[2.75rem] font-black leading-none text-emerald-200">{formatHHmm(selectedFlight.std)}</div>
+                    {hasLiveDelay(selectedFlight) && (
+                      <div className="mt-2 inline-flex rounded-lg bg-amber-400 px-2 py-1 text-lg font-black leading-none text-black">
+                        {getLiveDelayLabel(selectedFlight)}
+                      </div>
+                    )}
                     <div className="mt-1.5 text-base font-bold leading-none text-white/50">
                       {formatDuration(getMinutesToTarget(selectedFlight.std))}
                     </div>
@@ -2303,10 +2342,18 @@ export default function App() {
             filters: getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd),
           }),
         });
-        const payload = await response.json() as AdrSyncResponse;
+        const responseText = await response.text();
+        let payload: AdrSyncResponse = {};
+        if (responseText.trim()) {
+          try {
+            payload = JSON.parse(responseText) as AdrSyncResponse;
+          } catch {
+            payload = { error: response.ok ? undefined : responseText.slice(0, 180) };
+          }
+        }
 
         if (!response.ok) {
-          throw new Error(payload.error || 'ADR sync failed');
+          throw new Error(payload.error || 'Live sync failed');
         }
 
         if (!cancelled && payload.updatedCount && payload.updatedCount > 0 && Array.isArray(payload.flights)) {
@@ -2316,13 +2363,22 @@ export default function App() {
           }));
         }
         if (!cancelled) {
-          setAdrSyncStatus({ state: 'success', at: Date.now() });
+          setAdrSyncStatus({
+            state: 'success',
+            at: Date.now(),
+            provider: payload.provider,
+            fallbackUsed: payload.fallbackUsed,
+          });
           setStatusNow(Date.now());
         }
       } catch (error) {
-        console.error('ADR sync failed', error);
+        console.warn('Live sync failed', error);
         if (!cancelled) {
-          setAdrSyncStatus({ state: 'failure', at: Date.now() });
+          setAdrSyncStatus({
+            state: 'failure',
+            at: Date.now(),
+            message: error instanceof Error ? error.message : 'Live sync failed',
+          });
           setStatusNow(Date.now());
         }
       } finally {
@@ -2464,7 +2520,9 @@ export default function App() {
     );
   }, [glossaryQuery]);
   const adrSyncStatusLabel = adrSyncStatus
-    ? `${adrSyncStatus.state === 'success' ? 'Updated' : 'Failed update'} ${formatMinutesAgo(adrSyncStatus.at, statusNow)}`
+    ? adrSyncStatus.state === 'success'
+      ? `Live updated ${formatMinutesAgo(adrSyncStatus.at, statusNow)}${adrSyncStatus.provider ? ` · ${adrSyncStatus.provider}${adrSyncStatus.fallbackUsed ? ' fallback' : ''}` : ''}`
+      : `Live sync failed ${formatMinutesAgo(adrSyncStatus.at, statusNow)}${getStatusMessageSuffix(adrSyncStatus.message)}`
     : null;
   const sharedBoardStatusLabel = sharedBoardStatus.state === 'save-failed'
     ? `Site save failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}${getStatusMessageSuffix(sharedBoardStatus.message)}`
@@ -2710,6 +2768,11 @@ export default function App() {
                       <div className="flex flex-wrap items-baseline gap-2">
                         <span className="text-2xl font-black text-white">{flight.flightNumber}</span>
                         <span className="rounded-lg bg-yellow-300 px-2 py-1 text-sm font-black text-black">Nastro {flight.position || '-'}</span>
+                        {hasLiveDelay(flight) && (
+                          <span className="rounded-lg bg-amber-400 px-2 py-1 text-sm font-black text-black">
+                            {getLiveDelayLabel(flight)}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-1 truncate text-sm font-bold text-white/55">{flight.destination}</p>
                     </div>
@@ -2785,7 +2848,7 @@ export default function App() {
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="border-b-2 border-black">
-                  {['Volo', 'Provenienza', 'Nastro', 'Arrivo', '2a entrata', '3a entrata', 'Fine', 'Carrelli', 'AKH', 'AKE', 'Transiti', 'Note'].map((heading) => (
+                  {['Volo', 'Provenienza', 'Nastro', 'Arrivo', 'Ritardo', '2a entrata', '3a entrata', 'Fine', 'Carrelli', 'AKH', 'AKE', 'Transiti', 'Note'].map((heading) => (
                     <th key={heading} className="border border-black px-2 py-1 text-left font-black">{heading}</th>
                   ))}
                 </tr>
@@ -2797,6 +2860,7 @@ export default function App() {
                     <td className="border border-black px-2 py-1">{flight.destination}</td>
                     <td className="border border-black px-2 py-1">{flight.position}</td>
                     <td className="border border-black px-2 py-1">{formatHHmm(flight.std)}</td>
+                    <td className="border border-black px-2 py-1">{hasLiveDelay(flight) ? getLiveDelayLabel(flight) : ''}</td>
                     <td className="border border-black px-2 py-1">{flight.secondEntryAt ? formatHHmm(flight.secondEntryAt) : ''}</td>
                     <td className="border border-black px-2 py-1">{flight.thirdEntryAt ? formatHHmm(flight.thirdEntryAt) : ''}</td>
                     <td className="border border-black px-2 py-1">{flight.endAt ? formatHHmm(flight.endAt) : ''}</td>
