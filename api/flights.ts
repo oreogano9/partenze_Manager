@@ -4,6 +4,7 @@ import { readSharedBoardText, writeSharedBoardText } from './_sharedBoardStore.j
 type SharedBoardPayload = {
   flights?: unknown;
   filters?: unknown;
+  arrivalStats?: unknown;
   savedAt?: unknown;
 };
 
@@ -20,6 +21,7 @@ const readBody = (body: unknown) => {
 };
 
 const ensureFlightArray = (value: unknown) => (Array.isArray(value) ? value : []);
+const ensureArrivalStatsArray = (value: unknown) => (Array.isArray(value) ? value : []);
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -46,11 +48,14 @@ export default async function handler(req: any, res: any) {
       const filters = Array.isArray(parsed)
         ? undefined
         : (parsed as { filters?: unknown }).filters;
+      const arrivalStats = Array.isArray(parsed)
+        ? []
+        : ensureArrivalStatsArray((parsed as { arrivalStats?: unknown }).arrivalStats);
       const savedAt = Array.isArray(parsed)
         ? undefined
         : (typeof parsed.savedAt === 'string' ? parsed.savedAt : undefined);
 
-      res.status(200).json({ flights, filters, savedAt, count: flights.length });
+      res.status(200).json({ flights, filters, arrivalStats, savedAt, count: flights.length });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load shared flights';
       res.status(500).json({ error: message });
@@ -63,9 +68,10 @@ export default async function handler(req: any, res: any) {
       const body = readBody(req.body);
       const flights = ensureFlightArray(body.flights);
       const filters = body.filters && typeof body.filters === 'object' ? body.filters : undefined;
+      const arrivalStats = ensureArrivalStatsArray(body.arrivalStats);
       const savedAt = new Date().toISOString();
 
-      await writeSharedBoardText(JSON.stringify({ flights, filters, savedAt }), blobToken);
+      await writeSharedBoardText(JSON.stringify({ flights, filters, arrivalStats, savedAt }), blobToken);
 
       res.status(200).json({ ok: true, count: flights.length, savedAt });
     } catch (error) {

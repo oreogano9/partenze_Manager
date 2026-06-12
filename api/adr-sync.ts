@@ -20,6 +20,7 @@ type LiveFlight = {
 type SharedBoardPayload = {
   flights?: Flight[];
   filters?: unknown;
+  arrivalStats?: unknown;
 };
 
 type ProviderResult = {
@@ -351,16 +352,20 @@ const readSharedBoard = async (): Promise<SharedBoardPayload> => {
   const parsed = JSON.parse(rawText) as SharedBoardPayload | Flight[];
   return Array.isArray(parsed)
     ? { flights: parsed }
-    : { flights: Array.isArray(parsed.flights) ? parsed.flights : [], filters: parsed.filters };
+    : {
+      flights: Array.isArray(parsed.flights) ? parsed.flights : [],
+      filters: parsed.filters,
+      arrivalStats: parsed.arrivalStats,
+    };
 };
 
-const writeSharedBoard = async (flights: Flight[], filters: unknown) => {
+const writeSharedBoard = async (flights: Flight[], filters: unknown, arrivalStats: unknown) => {
   const { token: blobToken } = getBlobTokenInfo();
   if (!blobToken) {
     return;
   }
 
-  await writeSharedBoardText(JSON.stringify({ flights, filters, savedAt: new Date().toISOString() }), blobToken);
+  await writeSharedBoardText(JSON.stringify({ flights, filters, arrivalStats, savedAt: new Date().toISOString() }), blobToken);
 };
 
 const getNeededDirections = (flights: Flight[]) => {
@@ -455,7 +460,7 @@ export default async function handler(req: any, res: any) {
     });
 
     if (updatedCount > 0) {
-      await writeSharedBoard(updatedFlights, sharedBoard.filters);
+      await writeSharedBoard(updatedFlights, sharedBoard.filters, sharedBoard.arrivalStats);
     }
 
     res.status(200).json({

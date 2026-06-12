@@ -24,6 +24,8 @@ export interface Flight {
   anomaly?: string;
   bag?: string;
   sourceType?: OCRSourceType;
+  arrivalReceivedAt?: string;
+  firstBaggageAt?: string;
   secondEntryAt?: string;
   thirdEntryAt?: string;
   endAt?: string;
@@ -39,6 +41,20 @@ export interface Flight {
   liveStatus?: string;
   liveSource?: string;
   liveCheckedAt?: string;
+}
+
+export interface ArrivalFirstBaggageSample {
+  id: string;
+  sourceFlightId: string;
+  flightNumber: string;
+  carrierPrefix: string;
+  destination: string;
+  terminal: TerminalType;
+  position: string;
+  scheduledAt: string;
+  firstBaggageAt: string;
+  delayMinutes: number;
+  recordedAt: string;
 }
 
 export interface OCRFlightCandidate extends Flight {

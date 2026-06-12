@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Flight, OCRFlightCandidate, OCRSourceType, PositionType, TerminalType } from './types';
+import { AppState, ArrivalFirstBaggageSample, Flight, OCRFlightCandidate, OCRSourceType, PositionType, TerminalType } from './types';
 import { GLOSSARY_ENTRIES, TRANSLATIONS, getPositionType } from './constants';
 import { Clock } from './components/Clock';
 import { FlightCard, FlightCardExpandedContent } from './components/FlightCard';
@@ -30,9 +30,17 @@ type OCRMergeInfo = {
   previousFlight: Flight | null;
 };
 type MainView = 'board' | 'arrivals' | 'arrivalSheet' | 'settings';
+type ArrivalTimeField = 'arrivalReceivedAt' | 'firstBaggageAt' | 'secondEntryAt' | 'thirdEntryAt' | 'endAt';
 type ArrivalCounterField = 'carts' | 'akh' | 'ake' | 'transitBags';
+type ArrivalCompanyOption = {
+  id: string;
+  label: string;
+  prefixes: string[];
+};
 const ALL_POSITION_TYPES: PositionType[] = ['Scivolo', 'Carosello', 'Baia'];
-const DEFAULT_ARRIVAL_COMPANY_PREFIXES = ['W4', 'W6'];
+const ARRIVAL_COMPANY_GROUPS: ArrivalCompanyOption[] = [
+  { id: 'wizz', label: 'Wizz', prefixes: ['W4', 'W6'] },
+];
 const SCAN_TERMINAL_OPTIONS: ScanTerminalMode[] = ['AUTO', 'T1', 'T3'];
 const T1_ONLY_AUTO_TERMINAL_POSITIONS = new Set([
   1, 2, 3, 4, 5, 7, 9, 11,
@@ -47,6 +55,7 @@ type SharedBoardFilters = {
   showFocusOnly: boolean;
   showPast: boolean;
   searchQuery: string;
+  arrivalCompanyFilterIds: string[];
   useShiftFilter: boolean;
   shiftStart: string;
   shiftEnd: string;
@@ -60,11 +69,13 @@ type PersistedState = {
   shiftEnd: string;
   useShiftFilter: boolean;
   connectionThreshold: 5 | 10;
+  arrivalCompanyFilterIds: string[];
 };
 
 type SharedFlightsResponse = {
   flights?: Flight[];
   filters?: Partial<SharedBoardFilters>;
+  arrivalStats?: ArrivalFirstBaggageSample[];
   savedAt?: string;
   count?: number;
   error?: string;
@@ -95,6 +106,13 @@ type SharedBoardStatus = {
   message?: string;
   count?: number;
   savedAt?: string;
+};
+
+type ArrivalPrediction = {
+  predictedAt: string;
+  delayMinutes: number;
+  sampleCount: number;
+  strongSampleCount: number;
 };
 
 type OCRPreviewCardProps = {
@@ -167,8 +185,133 @@ const getFlightCodeKey = (flightNumber: string) => normalizeFlightCode(flightNum
 const getFlightCarrierPrefix = (flightNumber: string) => normalizeFlightCode(flightNumber).split(/\s+/)[0] || '';
 const isArrivalFlight = (flight: Pick<Flight, 'sourceType' | 'tags'>) =>
   flight.sourceType === 'arrival_screen' || flight.tags.includes('Arrivo');
-const isCompanyArrivalFlight = (flight: Flight) =>
-  DEFAULT_ARRIVAL_COMPANY_PREFIXES.includes(getFlightCarrierPrefix(flight.flightNumber));
+const getArrivalCompanyOptionForPrefix = (prefix: string): ArrivalCompanyOption => {
+  const normalizedPrefix = prefix.trim().toUpperCase();
+  const groupedCompany = ARRIVAL_COMPANY_GROUPS.find((company) => company.prefixes.includes(normalizedPrefix));
+  return groupedCompany ?? {
+    id: normalizedPrefix.toLowerCase(),
+    label: normalizedPrefix,
+    prefixes: [normalizedPrefix],
+  };
+};
+const getArrivalCompanyOptionForFlight = (flight: Pick<Flight, 'flightNumber'>) =>
+  getArrivalCompanyOptionForPrefix(getFlightCarrierPrefix(flight.flightNumber));
+const getArrivalCompanyIdForFlight = (flight: Pick<Flight, 'flightNumber'>) =>
+  getArrivalCompanyOptionForFlight(flight).id;
+const normalizeArrivalCompanyFilterIds = (ids?: string[]) => (
+  Array.isArray(ids)
+    ? Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)))
+    : ['wizz']
+);
+const getArrivalStatsSampleId = (flight: Pick<Flight, 'std' | 'flightNumber' | 'destination'>) => {
+  const date = new Date(flight.std);
+  const dateKey = Number.isNaN(date.getTime()) ? flight.std.slice(0, 10) : date.toLocaleDateString('sv-SE');
+  return `${normalizeFlightCode(flight.flightNumber)}|${flight.destination.trim().toUpperCase()}|${dateKey}`;
+};
+const getArrivalFirstBaggageDelayMinutes = (flight: Pick<Flight, 'std' | 'firstBaggageAt'>) => {
+  if (!flight.firstBaggageAt) {
+    return null;
+  }
+
+  const scheduledAt = new Date(flight.std);
+  const firstBaggageAt = new Date(flight.firstBaggageAt);
+  if (Number.isNaN(scheduledAt.getTime()) || Number.isNaN(firstBaggageAt.getTime())) {
+    return null;
+  }
+
+  const delay = Math.round((firstBaggageAt.getTime() - scheduledAt.getTime()) / 60000);
+  return delay >= 0 && delay <= 180 ? delay : null;
+};
+const createArrivalFirstBaggageSample = (flight: Flight, firstBaggageAt: string): ArrivalFirstBaggageSample | null => {
+  const delayMinutes = getArrivalFirstBaggageDelayMinutes({ ...flight, firstBaggageAt });
+  if (delayMinutes === null) {
+    return null;
+  }
+
+  return {
+    id: getArrivalStatsSampleId(flight),
+    sourceFlightId: flight.id,
+    flightNumber: normalizeFlightCode(flight.flightNumber),
+    carrierPrefix: getFlightCarrierPrefix(flight.flightNumber),
+    destination: flight.destination.trim().toUpperCase(),
+    terminal: flight.terminal,
+    position: flight.position,
+    scheduledAt: flight.std,
+    firstBaggageAt,
+    delayMinutes,
+    recordedAt: new Date().toISOString(),
+  };
+};
+const normalizeArrivalStats = (samples?: ArrivalFirstBaggageSample[]) => (
+  Array.isArray(samples)
+    ? samples
+      .filter((sample) => (
+        typeof sample.id === 'string' &&
+        typeof sample.firstBaggageAt === 'string' &&
+        Number.isFinite(sample.delayMinutes) &&
+        sample.delayMinutes >= 0 &&
+        sample.delayMinutes <= 180
+      ))
+      .slice(-500)
+    : []
+);
+const updateArrivalStatsWithFlight = (samples: ArrivalFirstBaggageSample[], flight: Flight, firstBaggageAt?: string) => {
+  const sampleId = getArrivalStatsSampleId(flight);
+  const withoutCurrent = samples.filter((sample) => sample.id !== sampleId);
+  if (!firstBaggageAt) {
+    return withoutCurrent;
+  }
+
+  const sample = createArrivalFirstBaggageSample(flight, firstBaggageAt);
+  return sample ? normalizeArrivalStats([...withoutCurrent, sample]) : withoutCurrent;
+};
+const getArrivalPrediction = (flight: Flight, samples: ArrivalFirstBaggageSample[]): ArrivalPrediction | null => {
+  const usableSamples = normalizeArrivalStats(samples);
+  if (usableSamples.length === 0) {
+    return null;
+  }
+
+  const carrierPrefix = getFlightCarrierPrefix(flight.flightNumber);
+  const destination = flight.destination.trim().toUpperCase();
+  let weightedMinutes = 0;
+  let totalWeight = 0;
+  let strongSampleCount = 0;
+
+  usableSamples.forEach((sample) => {
+    const sameCarrier = sample.carrierPrefix === carrierPrefix;
+    const sameDestination = sample.destination === destination;
+    const sameTerminal = sample.terminal === flight.terminal;
+    const ageDays = Math.max(0, (Date.now() - new Date(sample.recordedAt || sample.firstBaggageAt).getTime()) / 86400000);
+    const recencyWeight = Number.isFinite(ageDays) ? Math.max(0.45, 1 - ageDays / 180) : 0.75;
+    const matchWeight = 0.35 +
+      (sameCarrier ? 1.6 : 0) +
+      (sameDestination ? 1.6 : 0) +
+      (sameCarrier && sameDestination ? 2.2 : 0) +
+      (sameTerminal ? 0.25 : 0);
+    const weight = matchWeight * recencyWeight;
+
+    if (sameCarrier || sameDestination) {
+      strongSampleCount += 1;
+    }
+
+    weightedMinutes += sample.delayMinutes * weight;
+    totalWeight += weight;
+  });
+
+  if (totalWeight <= 0) {
+    return null;
+  }
+
+  const delayMinutes = Math.round(weightedMinutes / totalWeight);
+  const predictedAt = updateStdTime(flight.std, formatHHmm(new Date(new Date(flight.std).getTime() + delayMinutes * 60000).toISOString()));
+
+  return {
+    predictedAt,
+    delayMinutes,
+    sampleCount: usableSamples.length,
+    strongSampleCount,
+  };
+};
 const hasLiveDelay = (flight: Pick<Flight, 'liveDelayMinutes' | 'liveStatus'>) =>
   Boolean(
     typeof flight.liveDelayMinutes === 'number' && flight.liveDelayMinutes !== 0 ||
@@ -266,6 +409,8 @@ const mergeFlightData = <T extends Flight>(base: T, incoming: Partial<T>): T => 
   tot: pickPreferredValue(base.tot, incoming.tot) || undefined,
   anomaly: pickPreferredValue(base.anomaly, incoming.anomaly) || undefined,
   bag: pickPreferredValue(base.bag, incoming.bag) || undefined,
+  arrivalReceivedAt: base.arrivalReceivedAt || incoming.arrivalReceivedAt,
+  firstBaggageAt: base.firstBaggageAt || incoming.firstBaggageAt,
   liveScheduledAt: base.liveScheduledAt || incoming.liveScheduledAt,
   liveRevisedAt: base.liveRevisedAt || incoming.liveRevisedAt,
   liveDelayMinutes: base.liveDelayMinutes ?? incoming.liveDelayMinutes,
@@ -415,6 +560,8 @@ const SHIFT_TIME_OPTIONS = Array.from({length: 48}, (_, index) => {
   const minutes = index % 2 === 0 ? '00' : '30';
   return `${hours}:${minutes}`;
 });
+const ARRIVAL_TIME_HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
+const ARRIVAL_TIME_MINUTES = Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0'));
 
 const roundToNearestHalfHour = (date: Date) => {
   const rounded = new Date(date);
@@ -426,6 +573,8 @@ const roundToNearestHalfHour = (date: Date) => {
 
 const formatTimeOption = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+const formatCurrentTimeOption = () => formatTimeOption(new Date());
 
 const PERSISTED_STATE_KEY = 'partenze-manager-state';
 const LOCAL_BOARD_BACKUP_KEY = 'partenze-manager-board-backup';
@@ -450,6 +599,7 @@ const DEFAULT_SHARED_BOARD_FILTERS: SharedBoardFilters = {
   showFocusOnly: false,
   showPast: true,
   searchQuery: '',
+  arrivalCompanyFilterIds: ['wizz'],
   useShiftFilter: false,
   shiftStart: '00:00',
   shiftEnd: '23:30',
@@ -506,6 +656,7 @@ const normalizeSharedBoardFilters = (filters?: Partial<SharedBoardFilters>): Sha
   showFocusOnly: filters?.showFocusOnly === true,
   showPast: filters?.showPast !== false,
   searchQuery: typeof filters?.searchQuery === 'string' ? filters.searchQuery : '',
+  arrivalCompanyFilterIds: normalizeArrivalCompanyFilterIds(filters?.arrivalCompanyFilterIds),
   useShiftFilter: filters?.useShiftFilter === true,
   shiftStart: typeof filters?.shiftStart === 'string' && /^\d{2}:\d{2}$/.test(filters.shiftStart)
     ? filters.shiftStart
@@ -521,12 +672,14 @@ const getSharedBoardFiltersSnapshot = (
   useShiftFilter: boolean,
   shiftStart: string,
   shiftEnd: string,
+  arrivalCompanyFilterIds: string[],
 ): SharedBoardFilters => ({
   terminalFilter,
   filterTypes: state.filterTypes,
   showFocusOnly: state.showFocusOnly,
   showPast: state.showPast,
   searchQuery: state.searchQuery,
+  arrivalCompanyFilterIds: normalizeArrivalCompanyFilterIds(arrivalCompanyFilterIds),
   useShiftFilter,
   shiftStart,
   shiftEnd,
@@ -580,6 +733,7 @@ const loadPersistedState = (): PersistedState => {
     shiftEnd: defaultShiftEnd,
     useShiftFilter: true,
     connectionThreshold: 10,
+    arrivalCompanyFilterIds: ['wizz'],
   };
 
   if (typeof window === 'undefined') {
@@ -621,6 +775,7 @@ const loadPersistedState = (): PersistedState => {
         : defaultShiftEnd,
       useShiftFilter: typeof parsed.useShiftFilter === 'boolean' ? parsed.useShiftFilter : true,
       connectionThreshold: parsed.connectionThreshold === 5 ? 5 : 10,
+      arrivalCompanyFilterIds: normalizeArrivalCompanyFilterIds(parsed.arrivalCompanyFilterIds),
     };
   } catch (error) {
     console.error('Failed to load persisted state', error);
@@ -639,10 +794,15 @@ const loadLocalBoardBackup = () => {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as { flights?: Flight[]; filters?: Partial<SharedBoardFilters> };
+    const parsed = JSON.parse(raw) as {
+      flights?: Flight[];
+      filters?: Partial<SharedBoardFilters>;
+      arrivalStats?: ArrivalFirstBaggageSample[];
+    };
     return {
       flights: Array.isArray(parsed.flights) ? normalizeStoredFlights(parsed.flights) : [],
       filters: normalizeSharedBoardFilters(parsed.filters),
+      arrivalStats: normalizeArrivalStats(parsed.arrivalStats),
     };
   } catch (error) {
     console.error('Failed to load local board backup', error);
@@ -1072,6 +1232,78 @@ const WatchFlightCard: React.FC<{
   );
 };
 
+const WatchArrivalCard: React.FC<{
+  flight: Flight;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}> = ({ flight, expanded, onToggleExpanded }) => {
+  const timeRows: Array<[string, string | undefined]> = [
+    ['Arrivo', flight.arrivalReceivedAt],
+    ['Prima', flight.firstBaggageAt],
+    ['2a', flight.secondEntryAt],
+    ['3a', flight.thirdEntryAt],
+    ['Fine', flight.endAt],
+  ];
+
+  return (
+    <button
+      type="button"
+      onClick={onToggleExpanded}
+      className="w-full rounded-lg bg-white/[0.06] px-2.5 py-2.5 text-left active:scale-[0.99]"
+    >
+      <div className="grid grid-cols-[4.2rem_1fr] gap-2.5">
+        <div className="flex min-h-[4.6rem] flex-col items-center justify-center rounded-md bg-yellow-300 text-black">
+          <span className="text-[1.85rem] font-black leading-none">{flight.position || 'X'}</span>
+          <span className="mt-1 text-[11px] font-black uppercase leading-none">Nastro</span>
+        </div>
+        <div className="min-w-0 self-center">
+          <div className="flex min-w-0 items-baseline justify-between gap-1.5">
+            <span className="truncate text-[1.35rem] font-black leading-none text-white">{flight.destination}</span>
+            <span className="shrink-0 text-xl font-black leading-none text-emerald-200">{formatHHmm(flight.std)}</span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-1 text-sm font-bold leading-none text-white/55">
+            <span className="truncate">{flight.flightNumber}</span>
+            {flight.firstBaggageAt && <Check size={14} className="shrink-0 text-emerald-200" />}
+          </div>
+          {flight.arrivalReceivedAt && (
+            <div className="mt-1 text-[12px] font-black leading-none text-sky-200">
+              Arrivo {formatHHmm(flight.arrivalReceivedAt)}
+            </div>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          {timeRows.map(([label, value]) => (
+            <div key={label} className="rounded-md bg-black/25 px-2 py-1.5">
+              <div className="text-[9px] font-black uppercase tracking-[0.14em] text-white/30">{label}</div>
+              <div className="mt-0.5 text-base font-black leading-none text-white">{value ? formatHHmm(value) : '--:--'}</div>
+            </div>
+          ))}
+          <div className="rounded-md bg-black/25 px-2 py-1.5">
+            <div className="text-[9px] font-black uppercase tracking-[0.14em] text-white/30">Carrelli</div>
+            <div className="mt-0.5 text-base font-black leading-none text-white">{flight.carts ?? 0}</div>
+          </div>
+          <div className="rounded-md bg-black/25 px-2 py-1.5">
+            <div className="text-[9px] font-black uppercase tracking-[0.14em] text-white/30">AKH/AKE</div>
+            <div className="mt-0.5 text-base font-black leading-none text-white">{flight.akh ?? 0}/{flight.ake ?? 0}</div>
+          </div>
+          <div className="rounded-md bg-black/25 px-2 py-1.5">
+            <div className="text-[9px] font-black uppercase tracking-[0.14em] text-white/30">Transiti</div>
+            <div className="mt-0.5 text-base font-black leading-none text-white">{flight.hasTransit ? flight.transitBags ?? 0 : '-'}</div>
+          </div>
+          {flight.teamLeaderNote && (
+            <div className="col-span-2 rounded-md bg-black/25 px-2 py-1.5">
+              <div className="text-[9px] font-black uppercase tracking-[0.14em] text-white/30">Note</div>
+              <div className="mt-0.5 line-clamp-3 text-sm font-bold leading-snug text-white/75">{flight.teamLeaderNote}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </button>
+  );
+};
+
 const WatchLocationName: React.FC<{ destination: string }> = ({ destination }) => {
   const [location, setLocation] = useState(() => getCommonIataLocationName(destination, 'it'));
 
@@ -1122,9 +1354,22 @@ const WatchApp: React.FC<{
   const [selectedIataLetter, setSelectedIataLetter] = useState<string | null>(null);
   const [selectedFlightPrefix, setSelectedFlightPrefix] = useState<string | null>(null);
   const [selectedWatchPosition, setSelectedWatchPosition] = useState<string | null>(null);
+  const [expandedArrivalIds, setExpandedArrivalIds] = useState<string[]>([]);
   const [detailReturn, setDetailReturn] = useState<WatchDetailReturn>('timeline');
+  const arrivalFlights = useMemo(() => (
+    flights
+      .filter(isArrivalFlight)
+      .filter((flight) => !Number.isNaN(new Date(flight.std).getTime()))
+      .filter((flight) => filters.arrivalCompanyFilterIds.includes(getArrivalCompanyIdForFlight(flight)))
+      .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
+  ), [flights, filters.arrivalCompanyFilterIds]);
+  const shouldShowArrivals = arrivalFlights.length > 0;
 
   const baseVisibleFlights = useMemo(() => {
+    if (shouldShowArrivals) {
+      return [];
+    }
+
     const now = Date.now();
     const query = filters.searchQuery.trim().toLowerCase();
     const { shiftStart: shiftLowerBound, shiftEnd: shiftEndDate } = resolveShiftWindow(filters.shiftStart, filters.shiftEnd, new Date(now));
@@ -1153,11 +1398,13 @@ const WatchApp: React.FC<{
         );
       })
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime());
-  }, [flights, filters]);
+  }, [flights, filters, shouldShowArrivals]);
 
   const visibleFlights = baseVisibleFlights;
   const hasHiddenFlights = !isLoading && flights.length > 0 && baseVisibleFlights.length === 0;
-  const statusLabel = `${visibleFlights.length}/${flights.length}`;
+  const statusLabel = shouldShowArrivals
+    ? `Arrivi ${arrivalFlights.length}/${flights.filter(isArrivalFlight).length}`
+    : `${visibleFlights.length}/${flights.length}`;
 
   const destinations = useMemo(() => {
     const grouped = new Map<string, Flight[]>();
@@ -1382,6 +1629,47 @@ const WatchApp: React.FC<{
       })}
     </div>
   );
+
+  if (shouldShowArrivals) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="flex min-h-screen w-full max-w-none flex-col px-1 py-1">
+          <div className="mb-1.5 rounded-md bg-white/[0.045] px-2 py-1.5 text-center text-[13px] font-black text-white/35">
+            {statusLabel}
+          </div>
+          <header className="sticky top-0 z-10 -mx-1 bg-black/95 px-1 pb-2 pt-0.5">
+            <div className="flex min-h-[3.65rem] items-center justify-center rounded-xl bg-white/[0.06] px-2 text-center text-[1.15rem] font-black uppercase text-emerald-300">
+              Arrivi TL
+            </div>
+          </header>
+          <main className="min-h-0 flex-1 space-y-2 overflow-auto pb-1.5">
+            {isLoading ? (
+              <div className="rounded-md bg-white/[0.055] p-4 text-center text-base font-bold text-white/50">
+                Carico arrivi...
+              </div>
+            ) : arrivalFlights.length === 0 ? (
+              <div className="rounded-md bg-white/[0.055] p-4 text-center text-base font-bold leading-snug text-white/50">
+                Nessun arrivo
+              </div>
+            ) : (
+              arrivalFlights.map((flight) => (
+                <WatchArrivalCard
+                  key={`watch-arrival-${flight.id}`}
+                  flight={flight}
+                  expanded={expandedArrivalIds.includes(flight.id)}
+                  onToggleExpanded={() => setExpandedArrivalIds((prev) => (
+                    prev.includes(flight.id)
+                      ? prev.filter((id) => id !== flight.id)
+                      : [...prev, flight.id]
+                  ))}
+                />
+              ))
+            )}
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -1646,6 +1934,9 @@ export default function App() {
   const [shiftEnd, setShiftEnd] = useState(persistedState.shiftEnd);
   const [useShiftFilter, setUseShiftFilter] = useState(persistedState.useShiftFilter);
   const [connectionThreshold, setConnectionThreshold] = useState<5 | 10>(persistedState.connectionThreshold);
+  const [arrivalCompanyFilterIds, setArrivalCompanyFilterIds] = useState<string[]>(
+    localBoardBackup?.filters.arrivalCompanyFilterIds ?? persistedState.arrivalCompanyFilterIds,
+  );
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
   const [showScanMenu, setShowScanMenu] = useState(false);
   const [showShiftMenu, setShowShiftMenu] = useState(false);
@@ -1654,6 +1945,7 @@ export default function App() {
   const [ocrImportItems, setOcrImportItems] = useState<OCRImportProgressItem[]>([]);
   const [ocrReview, setOcrReview] = useState<OCRReviewState | null>(null);
   const [ocrFixFlightId, setOcrFixFlightId] = useState<string | null>(null);
+  const [arrivalTimePicker, setArrivalTimePicker] = useState<{ flightId: string; field: ArrivalTimeField } | null>(null);
   const [mobileOcrPanel, setMobileOcrPanel] = useState<'flights' | 'photo'>('flights');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
@@ -1663,6 +1955,9 @@ export default function App() {
   const [canPersistSharedFlights, setCanPersistSharedFlights] = useState(false);
   const [sharedBoardFilters, setSharedBoardFilters] = useState<SharedBoardFilters>(
     localBoardBackup?.filters ?? DEFAULT_SHARED_BOARD_FILTERS,
+  );
+  const [arrivalStats, setArrivalStats] = useState<ArrivalFirstBaggageSample[]>(
+    localBoardBackup?.arrivalStats ?? [],
   );
   const [sharedBoardStatus, setSharedBoardStatus] = useState<SharedBoardStatus>({
     state: 'idle',
@@ -1745,9 +2040,37 @@ export default function App() {
       .sort((a, b) => new Date(a.std).getTime() - new Date(b.std).getTime())
   ), [state.flights]);
 
+  const availableArrivalCompanyOptions = useMemo(() => {
+    const byId = new Map<string, ArrivalCompanyOption>();
+    arrivalFlights.forEach((flight) => {
+      const option = getArrivalCompanyOptionForFlight(flight);
+      const existing = byId.get(option.id);
+      byId.set(option.id, existing
+        ? { ...existing, prefixes: Array.from(new Set([...existing.prefixes, ...option.prefixes])) }
+        : option);
+    });
+
+    ARRIVAL_COMPANY_GROUPS.forEach((option) => {
+      if (arrivalCompanyFilterIds.includes(option.id) && !byId.has(option.id)) {
+        byId.set(option.id, option);
+      }
+    });
+
+    return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [arrivalFlights, arrivalCompanyFilterIds]);
+
   const companyArrivalFlights = useMemo(() => (
-    arrivalFlights.filter(isCompanyArrivalFlight)
-  ), [arrivalFlights]);
+    arrivalFlights.filter((flight) => arrivalCompanyFilterIds.includes(getArrivalCompanyIdForFlight(flight)))
+  ), [arrivalFlights, arrivalCompanyFilterIds]);
+
+  const toggleArrivalCompanyFilter = (companyId: string) => {
+    setArrivalCompanyFilterIds((prev) => {
+      const normalized = normalizeArrivalCompanyFilterIds(prev);
+      return normalized.includes(companyId)
+        ? normalized.filter((id) => id !== companyId)
+        : [...normalized, companyId];
+    });
+  };
 
   const updateArrivalFlight = (id: string, patch: Partial<Flight>) => {
     setState(prev => ({
@@ -1758,7 +2081,7 @@ export default function App() {
     }));
   };
 
-  const updateArrivalTimeField = (id: string, field: 'std' | 'secondEntryAt' | 'thirdEntryAt' | 'endAt', value: string) => {
+  const updateArrivalTimeField = (id: string, field: 'std' | ArrivalTimeField, value: string) => {
     setState(prev => ({
       ...prev,
       flights: prev.flights.map((flight) => {
@@ -1767,12 +2090,99 @@ export default function App() {
         }
 
         if (!value.trim()) {
+          if (field === 'firstBaggageAt') {
+            setArrivalStats((samples) => updateArrivalStatsWithFlight(samples, flight, undefined));
+          }
           return { ...flight, [field]: undefined };
         }
 
-        return { ...flight, [field]: updateStdTime(field === 'std' ? flight.std : flight[field] || flight.std, value) };
+        const nextTime = updateStdTime(field === 'std' ? flight.std : flight[field] || flight.std, value);
+        const nextFlight = { ...flight, [field]: nextTime };
+        if (field === 'firstBaggageAt') {
+          setArrivalStats((samples) => updateArrivalStatsWithFlight(samples, nextFlight, nextTime));
+        } else if (field === 'std' && nextFlight.firstBaggageAt) {
+          setArrivalStats((samples) => updateArrivalStatsWithFlight(samples, nextFlight, nextFlight.firstBaggageAt));
+        }
+        return nextFlight;
       }),
     }));
+  };
+
+  const handleArrivalTimeTap = (flight: Flight, field: ArrivalTimeField) => {
+    if (flight[field]) {
+      setArrivalTimePicker((current) => (
+        current?.flightId === flight.id && current.field === field ? null : { flightId: flight.id, field }
+      ));
+      return;
+    }
+
+    updateArrivalTimeField(flight.id, field, formatCurrentTimeOption());
+    setArrivalTimePicker({ flightId: flight.id, field });
+  };
+
+  const setArrivalPickerPart = (flight: Flight, field: ArrivalTimeField, part: 'hour' | 'minute', value: string) => {
+    const currentTime = flight[field] ? formatHHmm(flight[field] || '') : formatCurrentTimeOption();
+    const [currentHour, currentMinute] = currentTime.split(':');
+    const nextTime = part === 'hour' ? `${value}:${currentMinute || '00'}` : `${currentHour || '00'}:${value}`;
+    updateArrivalTimeField(flight.id, field, nextTime);
+  };
+
+  const renderArrivalTimeField = (flight: Flight, field: ArrivalTimeField, label: string, tone: 'green' | 'blue' | 'white' = 'white') => {
+    const value = flight[field];
+    const isOpen = arrivalTimePicker?.flightId === flight.id && arrivalTimePicker.field === field;
+    const [selectedHour, selectedMinute] = (value ? formatHHmm(value) : formatCurrentTimeOption()).split(':');
+    const activeClasses = tone === 'green'
+      ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-100'
+      : tone === 'blue'
+        ? 'border-sky-400/35 bg-sky-500/15 text-sky-100'
+        : 'border-white/15 bg-white/[0.06] text-white';
+
+    return (
+      <div key={`${flight.id}-${field}`} className="relative">
+        <button
+          type="button"
+          onClick={() => handleArrivalTimeTap(flight, field)}
+          className={`min-h-[3.25rem] w-full rounded-xl border px-2 py-1.5 text-left transition-all ${
+            value ? activeClasses : 'border-white/5 bg-white/[0.035] text-white/45'
+          }`}
+        >
+          <div className="text-[8px] font-black uppercase tracking-[0.16em]">{label}</div>
+          <div className="mt-0.5 text-lg font-black leading-none">{value ? formatHHmm(value) : '--:--'}</div>
+        </button>
+        {isOpen && (
+          <div className="absolute left-0 right-0 top-full z-40 mt-1 rounded-xl border border-white/10 bg-[#171717] p-2 shadow-2xl">
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['hour', ARRIVAL_TIME_HOURS, selectedHour],
+                ['minute', ARRIVAL_TIME_MINUTES, selectedMinute],
+              ] as const).map(([part, values, selected]) => (
+                <div key={part} className="h-32 overflow-y-auto rounded-lg bg-black/30 p-1 [scroll-snap-type:y_mandatory]">
+                  {values.map((option) => (
+                    <button
+                      key={`${part}-${option}`}
+                      type="button"
+                      onClick={() => setArrivalPickerPart(flight, field, part, option)}
+                      className={`mb-1 block h-8 w-full rounded-md text-sm font-black [scroll-snap-align:center] ${
+                        option === selected ? 'bg-emerald-500 text-black' : 'text-white/55 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setArrivalTimePicker(null)}
+              className="mt-2 h-8 w-full rounded-lg bg-white/10 text-xs font-black text-white/70"
+            >
+              OK
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const adjustArrivalCounter = (id: string, field: ArrivalCounterField, delta: number) => {
@@ -1821,14 +2231,18 @@ export default function App() {
     }));
   };
 
-  const persistSharedBoardSnapshot = async (flights: Flight[], filters: SharedBoardFilters) => {
+  const persistSharedBoardSnapshot = async (
+    flights: Flight[],
+    filters: SharedBoardFilters,
+    stats: ArrivalFirstBaggageSample[] = arrivalStats,
+  ) => {
     try {
       const response = await fetch(SHARED_FLIGHTS_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ flights, filters }),
+        body: JSON.stringify({ flights, filters, arrivalStats: normalizeArrivalStats(stats) }),
       });
 
       if (!response.ok) {
@@ -2216,6 +2630,7 @@ export default function App() {
         if (!cancelled) {
           const sharedFlights = normalizeStoredFlights(payload.flights ?? []);
           const sharedFilters = normalizeSharedBoardFilters(payload.filters);
+          const sharedArrivalStats = normalizeArrivalStats(payload.arrivalStats);
           setState((prev) => ({
             ...prev,
             flights: sharedFlights.length > 0 || prev.flights.length === 0 ? sharedFlights : prev.flights,
@@ -2228,7 +2643,9 @@ export default function App() {
           setUseShiftFilter(sharedFilters.useShiftFilter);
           setShiftStart(sharedFilters.shiftStart);
           setShiftEnd(sharedFilters.shiftEnd);
+          setArrivalCompanyFilterIds(sharedFilters.arrivalCompanyFilterIds);
           setSharedBoardFilters(sharedFilters);
+          setArrivalStats(sharedArrivalStats);
           setSharedBoardStatus({
             state: 'loaded',
             at: Date.now(),
@@ -2267,7 +2684,7 @@ export default function App() {
       return;
     }
 
-    const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
+    const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd, arrivalCompanyFilterIds);
     const flights = normalizeStoredFlights(state.flights);
     const snapshot: PersistedState = {
       appState: {
@@ -2281,11 +2698,12 @@ export default function App() {
       shiftEnd,
       useShiftFilter,
       connectionThreshold,
+      arrivalCompanyFilterIds: normalizeArrivalCompanyFilterIds(arrivalCompanyFilterIds),
     };
 
     window.localStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(snapshot));
-    window.localStorage.setItem(LOCAL_BOARD_BACKUP_KEY, JSON.stringify({ flights, filters }));
-  }, [state, terminalFilter, scanTerminal, scanTerminalFallback, connectionThreshold, useShiftFilter, shiftStart, shiftEnd]);
+    window.localStorage.setItem(LOCAL_BOARD_BACKUP_KEY, JSON.stringify({ flights, filters, arrivalStats }));
+  }, [state, terminalFilter, scanTerminal, scanTerminalFallback, connectionThreshold, useShiftFilter, shiftStart, shiftEnd, arrivalStats, arrivalCompanyFilterIds]);
 
   useEffect(() => {
     if (isWatchRoute || !canPersistSharedFlights) {
@@ -2299,8 +2717,8 @@ export default function App() {
 
     const persistSharedFlights = async () => {
       const flights = normalizeStoredFlights(state.flights);
-      const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd);
-      await persistSharedBoardSnapshot(flights, filters);
+      const filters = getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd, arrivalCompanyFilterIds);
+      await persistSharedBoardSnapshot(flights, filters, arrivalStats);
     };
 
     void persistSharedFlights();
@@ -2315,6 +2733,8 @@ export default function App() {
     shiftEnd,
     isWatchRoute,
     canPersistSharedFlights,
+    arrivalStats,
+    arrivalCompanyFilterIds,
   ]);
 
   useEffect(() => {
@@ -2339,7 +2759,7 @@ export default function App() {
           },
           body: JSON.stringify({
             flights: normalizeStoredFlights(stateFlightsRef.current),
-            filters: getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd),
+            filters: getSharedBoardFiltersSnapshot(state, terminalFilter, useShiftFilter, shiftStart, shiftEnd, arrivalCompanyFilterIds),
           }),
         });
         const responseText = await response.text();
@@ -2403,6 +2823,7 @@ export default function App() {
     useShiftFilter,
     shiftStart,
     shiftEnd,
+    arrivalCompanyFilterIds,
   ]);
 
   useEffect(() => {
@@ -2522,7 +2943,7 @@ export default function App() {
   const adrSyncStatusLabel = adrSyncStatus
     ? adrSyncStatus.state === 'success'
       ? `Live updated ${formatMinutesAgo(adrSyncStatus.at, statusNow)}${adrSyncStatus.provider ? ` · ${adrSyncStatus.provider}${adrSyncStatus.fallbackUsed ? ' fallback' : ''}` : ''}`
-      : `Live sync failed ${formatMinutesAgo(adrSyncStatus.at, statusNow)}${getStatusMessageSuffix(adrSyncStatus.message)}`
+      : null
     : null;
   const sharedBoardStatusLabel = sharedBoardStatus.state === 'save-failed'
     ? `Site save failed ${formatMinutesAgo(sharedBoardStatus.at, statusNow)}${getStatusMessageSuffix(sharedBoardStatus.message)}`
@@ -2658,6 +3079,49 @@ export default function App() {
           <div className="space-y-6">
             <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5 shadow-2xl">
               <div className="mb-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-300">Filtro compagnie arrivi</p>
+                <p className="mt-2 text-sm text-white/50">Le compagnie importate appaiono una volta sola. W4 e W6 sono raggruppate come Wizz.</p>
+              </div>
+              {availableArrivalCompanyOptions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm font-bold text-white/40">
+                  Importa una schermata arrivi per popolare la lista.
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {availableArrivalCompanyOptions.map((company) => {
+                    const selected = arrivalCompanyFilterIds.includes(company.id);
+                    const count = arrivalFlights.filter((flight) => getArrivalCompanyIdForFlight(flight) === company.id).length;
+                    return (
+                      <button
+                        key={company.id}
+                        type="button"
+                        onClick={() => toggleArrivalCompanyFilter(company.id)}
+                        className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all ${
+                          selected
+                            ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100'
+                            : 'border-white/10 bg-white/[0.03] text-white/45'
+                        }`}
+                      >
+                        <span>
+                          <span className="block text-sm font-black">{company.label}</span>
+                          <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+                            {company.prefixes.join('/')} {count ? `· ${count}` : ''}
+                          </span>
+                        </span>
+                        <span className={`flex h-7 w-7 items-center justify-center rounded-full ${
+                          selected ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/30'
+                        }`}>
+                          {selected && <Check size={16} strokeWidth={3} />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-[28px] border border-white/10 bg-[#111111] p-5 shadow-2xl">
+              <div className="mb-4">
                 <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-blue-300">{t.languageSettings}</p>
                 <p className="mt-2 text-sm text-white/50">{t.languageDescription}</p>
               </div>
@@ -2740,13 +3204,16 @@ export default function App() {
             </div>
           </div>
         ) : currentView === 'arrivals' ? (
-          <div className="space-y-4">
-            <div className="rounded-[24px] border border-white/10 bg-[#111111] p-4">
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-white/10 bg-[#111111] p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-black uppercase tracking-[0.25em] text-emerald-300">Team Leader</p>
-                  <p className="mt-1 text-sm text-white/50">
-                    Mostro i voli compagnia filtrati per prefissi {DEFAULT_ARRIVAL_COMPANY_PREFIXES.join(', ')}. Importo comunque tutti gli arrivi.
+                  <p className="mt-1 text-xs text-white/45">
+                    Filtro: {availableArrivalCompanyOptions
+                      .filter((company) => arrivalCompanyFilterIds.includes(company.id))
+                      .map((company) => company.label)
+                      .join(', ') || 'nessuna compagnia'}
                   </p>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-black text-white/70">
@@ -2758,87 +3225,102 @@ export default function App() {
             {companyArrivalFlights.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
                 <p className="text-lg font-black text-white">Nessun arrivo compagnia</p>
-                <p className="mt-2 text-sm text-white/45">Importa foto arrivi, oppure aspetta il filtro compagnia definitivo.</p>
+                <p className="mt-2 text-sm text-white/45">Attiva una compagnia in Impostazioni, oppure importa una schermata arrivi.</p>
               </div>
             ) : (
               companyArrivalFlights.map((flight) => (
-                <div key={`arrival-${flight.id}`} className="rounded-[24px] border border-white/10 bg-[#111111] p-4 shadow-xl">
-                  <div className="flex items-start justify-between gap-3">
+                <div key={`arrival-${flight.id}`} className="rounded-2xl border border-white/10 bg-[#111111] p-3 shadow-xl">
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="text-2xl font-black text-white">{flight.flightNumber}</span>
-                        <span className="rounded-lg bg-yellow-300 px-2 py-1 text-sm font-black text-black">Nastro {flight.position || '-'}</span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xl font-black leading-none text-white">{flight.flightNumber}</span>
+                        <span className="rounded-md bg-yellow-300 px-1.5 py-0.5 text-xs font-black text-black">Nastro {flight.position || '-'}</span>
                         {hasLiveDelay(flight) && (
-                          <span className="rounded-lg bg-amber-400 px-2 py-1 text-sm font-black text-black">
+                          <span className="rounded-md bg-amber-400 px-1.5 py-0.5 text-xs font-black text-black">
                             {getLiveDelayLabel(flight)}
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 truncate text-sm font-bold text-white/55">{flight.destination}</p>
+                      <p className="mt-1 truncate text-xs font-bold text-white/55">{flight.destination}</p>
+                      {(() => {
+                        const prediction = getArrivalPrediction(flight, arrivalStats);
+                        return prediction ? (
+                          <div className="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-lg border border-sky-400/20 bg-sky-500/10 px-2 py-1 text-[11px] font-black text-sky-100">
+                            <span>Prev. {formatHHmm(prediction.predictedAt)}</span>
+                            <span className="text-sky-200/70">+{prediction.delayMinutes}</span>
+                            <span className="text-white/30">
+                              {prediction.strongSampleCount}/{prediction.sampleCount} simili
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 text-[11px] font-bold text-white/30">
+                            Prev. dopo dati salvati
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <input
-                      value={formatHHmm(flight.std)}
-                      onChange={(event) => updateArrivalTimeField(flight.id, 'std', event.target.value)}
-                      className="w-20 rounded-xl border border-white/10 bg-black/30 px-2 py-2 text-center text-lg font-black text-emerald-200 outline-none"
-                    />
+                    <div className="rounded-xl border border-white/10 bg-black/25 px-2.5 py-2 text-right">
+                      <div className="text-[8px] font-black uppercase tracking-[0.16em] text-white/30">Eff.</div>
+                      <input
+                        value={formatHHmm(flight.std)}
+                        onChange={(event) => updateArrivalTimeField(flight.id, 'std', event.target.value)}
+                        className="mt-0.5 w-16 bg-transparent text-right text-lg font-black leading-none text-emerald-200 outline-none"
+                      />
+                    </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-5 gap-1.5">
+                    {renderArrivalTimeField(flight, 'arrivalReceivedAt', 'Arrivo', 'blue')}
+                    {renderArrivalTimeField(flight, 'firstBaggageAt', 'Prima', 'green')}
+                    {renderArrivalTimeField(flight, 'secondEntryAt', '2a')}
+                    {renderArrivalTimeField(flight, 'thirdEntryAt', '3a')}
+                    {renderArrivalTimeField(flight, 'endAt', 'Fine')}
+                  </div>
+                  {flight.firstBaggageAt && (
+                    <div className="mt-1.5 text-[11px] font-bold text-emerald-200">
+                      Prima salvata +{getArrivalFirstBaggageDelayMinutes(flight) ?? 0}m
+                    </div>
+                  )}
+
+                  <div className="mt-3 grid grid-cols-4 gap-1.5">
                     {([
-                      ['Seconda entrata', 'secondEntryAt'],
-                      ['Terza entrata', 'thirdEntryAt'],
-                      ['Fine', 'endAt'],
+                      ['Carr.', 'carts'],
+                      ['AKH', 'akh'],
+                      ['AKE', 'ake'],
                     ] as const).map(([label, field]) => (
-                      <label key={field} className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">{label}</span>
-                        <input
-                          value={flight[field] ? formatHHmm(flight[field] || '') : ''}
-                          onChange={(event) => updateArrivalTimeField(flight.id, field, event.target.value)}
-                          placeholder="HH:mm"
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-base font-black text-white outline-none"
-                        />
-                      </label>
+                      <div key={field} className="rounded-xl border border-white/5 bg-white/[0.03] p-2">
+                        <div className="text-[9px] font-black uppercase tracking-[0.16em] text-white/35">{label}</div>
+                        <div className="mt-1 flex items-center justify-between gap-1">
+                          <button onClick={() => adjustArrivalCounter(flight.id, field, -1)} className="h-7 w-7 rounded-lg bg-white/10 text-base font-black text-white">-</button>
+                          <span className="text-base font-black text-white">{flight[field] ?? 0}</span>
+                          <button onClick={() => adjustArrivalCounter(flight.id, field, 1)} className="h-7 w-7 rounded-lg bg-emerald-500 text-base font-black text-black">+</button>
+                        </div>
+                      </div>
                     ))}
-                    <label className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Note</span>
+                    <div className="rounded-xl border border-white/5 bg-white/[0.03] p-2">
+                      <button
+                        onClick={() => updateArrivalFlight(flight.id, { hasTransit: !flight.hasTransit, transitBags: flight.hasTransit ? 0 : flight.transitBags ?? 0 })}
+                        className={`h-6 w-full rounded-lg text-[10px] font-black ${flight.hasTransit ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/60'}`}
+                      >
+                        Transiti
+                      </button>
+                      <div className="mt-1 flex items-center justify-between gap-1">
+                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', -1)} className="h-7 w-7 rounded-lg bg-white/10 text-base font-black text-white">-</button>
+                        <span className="text-base font-black text-white">{flight.transitBags ?? 0}</span>
+                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', 1)} className="h-7 w-7 rounded-lg bg-emerald-500 text-base font-black text-black">+</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="mt-3 block rounded-xl border border-white/5 bg-white/[0.03] p-2">
+                      <span className="text-[9px] font-black uppercase tracking-[0.16em] text-white/35">Note</span>
                       <input
                         value={flight.teamLeaderNote || ''}
                         onChange={(event) => updateArrivalFlight(flight.id, { teamLeaderNote: event.target.value })}
                         placeholder="Note"
-                        className="mt-2 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-base font-bold text-white outline-none"
+                        className="mt-1 w-full rounded-lg border border-white/10 bg-black/25 px-2 py-1.5 text-sm font-bold text-white outline-none"
                       />
-                    </label>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {([
-                      ['Carrelli', 'carts'],
-                      ['AKH', 'akh'],
-                      ['AKE', 'ake'],
-                    ] as const).map(([label, field]) => (
-                      <div key={field} className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">{label}</div>
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <button onClick={() => adjustArrivalCounter(flight.id, field, -1)} className="h-9 w-9 rounded-xl bg-white/10 text-xl font-black text-white">-</button>
-                          <span className="text-xl font-black text-white">{flight[field] ?? 0}</span>
-                          <button onClick={() => adjustArrivalCounter(flight.id, field, 1)} className="h-9 w-9 rounded-xl bg-emerald-500 text-xl font-black text-black">+</button>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                      <button
-                        onClick={() => updateArrivalFlight(flight.id, { hasTransit: !flight.hasTransit, transitBags: flight.hasTransit ? 0 : flight.transitBags ?? 0 })}
-                        className={`w-full rounded-xl px-3 py-2 text-xs font-black ${flight.hasTransit ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/60'}`}
-                      >
-                        Transiti
-                      </button>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', -1)} className="h-9 w-9 rounded-xl bg-white/10 text-xl font-black text-white">-</button>
-                        <span className="text-xl font-black text-white">{flight.transitBags ?? 0}</span>
-                        <button onClick={() => adjustArrivalCounter(flight.id, 'transitBags', 1)} className="h-9 w-9 rounded-xl bg-emerald-500 text-xl font-black text-black">+</button>
-                      </div>
-                    </div>
-                  </div>
+                  </label>
                 </div>
               ))
             )}
@@ -2848,7 +3330,7 @@ export default function App() {
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="border-b-2 border-black">
-                  {['Volo', 'Provenienza', 'Nastro', 'Arrivo', 'Ritardo', '2a entrata', '3a entrata', 'Fine', 'Carrelli', 'AKH', 'AKE', 'Transiti', 'Note'].map((heading) => (
+                  {['Volo', 'Provenienza', 'Nastro', 'Eff.', 'Arrivo', 'Prima prev.', 'Prima reale', 'Ritardo', '2a entrata', '3a entrata', 'Fine', 'Carrelli', 'AKH', 'AKE', 'Transiti', 'Note'].map((heading) => (
                     <th key={heading} className="border border-black px-2 py-1 text-left font-black">{heading}</th>
                   ))}
                 </tr>
@@ -2860,6 +3342,9 @@ export default function App() {
                     <td className="border border-black px-2 py-1">{flight.destination}</td>
                     <td className="border border-black px-2 py-1">{flight.position}</td>
                     <td className="border border-black px-2 py-1">{formatHHmm(flight.std)}</td>
+                    <td className="border border-black px-2 py-1">{flight.arrivalReceivedAt ? formatHHmm(flight.arrivalReceivedAt) : ''}</td>
+                    <td className="border border-black px-2 py-1">{getArrivalPrediction(flight, arrivalStats) ? formatHHmm(getArrivalPrediction(flight, arrivalStats)!.predictedAt) : ''}</td>
+                    <td className="border border-black px-2 py-1">{flight.firstBaggageAt ? formatHHmm(flight.firstBaggageAt) : ''}</td>
                     <td className="border border-black px-2 py-1">{hasLiveDelay(flight) ? getLiveDelayLabel(flight) : ''}</td>
                     <td className="border border-black px-2 py-1">{flight.secondEntryAt ? formatHHmm(flight.secondEntryAt) : ''}</td>
                     <td className="border border-black px-2 py-1">{flight.thirdEntryAt ? formatHHmm(flight.thirdEntryAt) : ''}</td>
